@@ -76,3 +76,49 @@ def calculate_model_cost(results_data: List[Dict[str, Any]], model_config_item: 
 
     logger.info(f"Estimated cost for {model_type} model {model_id}: ${total_cost:.6f}")
     return {"total_cost": total_cost} 
+
+
+def calculate_total_cost_from_aggregated_tokens(
+    total_input_tokens: Optional[int],
+    total_output_tokens: Optional[int],
+    model_id_for_pricing: str,
+    model_type_for_pricing: str
+) -> Dict[str, float]:
+    """
+    Calculates the estimated total cost based on aggregated input and output token counts.
+
+    Args:
+        total_input_tokens: Total number of input tokens for the run.
+        total_output_tokens: Total number of output tokens for the run.
+        model_id_for_pricing: The specific model ID to use for fetching pricing.
+        model_type_for_pricing: The type of the model (e.g., 'openai', 'anthropic').
+
+    Returns:
+        A dictionary containing the total estimated cost, e.g., {'total_cost': 0.123}.
+        Returns {'total_cost': 0.0} if pricing is missing or token data is incomplete.
+    """
+    if total_input_tokens is None or total_output_tokens is None:
+        logger.warning(f"Cannot calculate cost for {model_id_for_pricing}: Missing aggregated token counts.")
+        return {"total_cost": 0.0}
+
+    pricing = get_pricing(model_type_for_pricing, model_id_for_pricing)
+    price_per_input_token = 0.0
+    price_per_output_token = 0.0
+
+    if pricing:
+        if model_type_for_pricing == "openai": 
+            price_per_input_token = pricing.get("input", 0.0)
+            price_per_output_token = pricing.get("output", 0.0)
+        else: 
+            price_per_input_token = pricing.get("prompt_tokens_cost_per_million", 0.0) / 1_000_000
+            price_per_output_token = pricing.get("completion_tokens_cost_per_million", 0.0) / 1_000_000
+    else:
+        logger.warning(f"Skipping cost calculation for model ID '{model_id_for_pricing}' (type: {model_type_for_pricing}) as pricing is not defined.")
+        return {"total_cost": 0.0}
+
+    if price_per_input_token == 0.0 and price_per_output_token == 0.0:
+        logger.warning(f"Both input and output token prices are zero for model '{model_id_for_pricing}' (type: {model_type_for_pricing}). Cost will be zero.")
+    cost = (total_input_tokens * price_per_input_token) + (total_output_tokens * price_per_output_token)
+    
+    logger.info(f"Calculated total cost for {model_type_for_pricing} model {model_id_for_pricing} (Aggregated): ${cost:.6f}")
+    return {"total_cost": cost} 

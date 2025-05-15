@@ -1,5 +1,5 @@
 """
-Default model configurations for single-letter answer strategies.
+Default model configurations for general essay generation strategies.
 """
 
 ALL_MODEL_CONFIGS = [
@@ -12,7 +12,7 @@ ALL_MODEL_CONFIGS = [
         "temperature": 0.1,
         "top_p": 0.999,
         "top_k": 250,
-        "max_tokens": 10
+        "max_tokens": 64000
     }
     },
     {
@@ -23,7 +23,7 @@ ALL_MODEL_CONFIGS = [
             "temperature": 0.1,
             "top_p": 0.999,
             "top_k": 250,
-            "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -34,7 +34,7 @@ ALL_MODEL_CONFIGS = [
             "temperature": 0.1,
             "top_p": 0.999,
             "top_k": 250,
-            "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -44,7 +44,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 4096
         }
     },
     {
@@ -54,7 +54,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 32768
         }
     },
     {
@@ -72,8 +72,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "gpt-4o",
         "parameters": {
             "temperature": 0.1,
-            "max_tokens": 10,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 8192
         }
     },
     
@@ -83,7 +82,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "o3-mini-2025-01-31",
         "parameters": {
             "temperature": 1.0,
-            # "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -92,7 +91,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "o4-mini-2025-04-16",
         "parameters": {
             "temperature": 1.0,
-            # "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -101,8 +100,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "gpt-4.1-2025-04-14",
         "parameters": {
             "temperature": 0.1,
-            "max_tokens": 10,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 32768
         }
     },
     {
@@ -111,8 +109,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "gpt-4.1-mini-2025-04-14",
         "parameters": {
             "temperature": 0.1,
-            "max_tokens": 10,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 32768
         }
     },
     {
@@ -121,8 +118,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "gpt-4.1-nano-2025-04-14",
         "parameters": {
             "temperature": 0.1,
-            "max_tokens": 10,
-            "response_format": {"type": "json_object"}
+            "max_tokens": 32768
         }
     },
     
@@ -132,7 +128,7 @@ ALL_MODEL_CONFIGS = [
         "model_id": "grok-3-latest",
         "parameters": {
             "temperature": 0.1,
-            "max_tokens": 10
+            "max_tokens": 16384
         }
     },
     {
@@ -141,7 +137,8 @@ ALL_MODEL_CONFIGS = [
         "model_id": "grok-3-mini-beta",
         "parameters": {
             "temperature": 0.1,
-            "reasoning_effort": "high"
+            "reasoning_effort": "high",
+            "max_tokens": 8192
         }
     },
     {
@@ -150,7 +147,8 @@ ALL_MODEL_CONFIGS = [
         "model_id": "grok-3-mini-beta",
         "parameters": {
             "temperature": 0.1,
-            "reasoning_effort": "low"
+            "reasoning_effort": "low",
+            "max_tokens": 8192
         }
     },
     
@@ -161,7 +159,7 @@ ALL_MODEL_CONFIGS = [
     "parameters": {
         "top_p": 0.95,
         "top_k": 64,
-        "max_output_tokens": 10
+        "max_output_tokens": 65536
     }
     },
     {
@@ -171,7 +169,7 @@ ALL_MODEL_CONFIGS = [
     "parameters": {
         "top_p": 0.95,
         "top_k": 64,
-        "max_output_tokens": 10
+        "max_output_tokens": 65536
     }
     },
     {
@@ -191,7 +189,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -201,7 +199,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 8192
         }
     },
     {
@@ -211,7 +209,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 128
         }
     },
     {
@@ -221,7 +219,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 32768
         }
     },
     {
@@ -231,7 +229,7 @@ ALL_MODEL_CONFIGS = [
         "parameters": {
             "temperature": 0.1,
             "top_p": 0.9,
-            "max_tokens": 10
+            "max_tokens": 8192
         }
     },
 ] 

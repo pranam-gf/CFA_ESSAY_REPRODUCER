@@ -33,11 +33,8 @@ OPENAI_API_KEY = get_credential("OPENAI_API_KEY")
 GEMINI_API_KEY = get_credential("GEMINI_API_KEY")
 XAI_API_KEY = get_credential("XAI_API_KEY") 
 WRITER_API_KEY = get_credential("WRITER_API_KEY")
-AWS_ACCESS_KEY_ID = get_credential("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = get_credential("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = get_credential("AWS_REGION", "us-east-1")
 GROQ_API_KEY = get_credential("GROQ_API_KEY")
-OPENROUTER_API_KEY = get_credential("OPENROUTER_API_KEY")
 YOUR_APP_NAME = get_credential("YOUR_APP_NAME", "CFA MCQ Reproducer") 
 YOUR_SITE_URL = get_credential("YOUR_SITE_URL", "http://localhost")
 ANTHROPIC_API_KEY = get_credential("ANTHROPIC_API_KEY")
@@ -52,8 +49,10 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 CHARTS_DIR.mkdir(parents=True, exist_ok=True)
 
-FILLED_JSON_PATH = DATA_DIR / "final_data.json" 
+FILLED_JSON_PATH = DATA_DIR / "test_data.json"
 
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_DELAY = 5 
 
 logging.basicConfig(
     level=logging.INFO,

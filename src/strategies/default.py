@@ -8,133 +8,140 @@ import re
 from .. import llm_clients 
 from ..utils import ui_utils
 from ..utils.prompt_utils import parse_question_data
-from ..prompts import default as default_prompts
+from ..prompts.default import BASIC_ESSAY_PROMPT 
+from .. import config
+import time
+from typing import Dict, Any, List
+from ..utils.ui_utils import LoadingAnimation
+from ..utils.text_utils import clean_llm_answer_for_similarity
 
 logger = logging.getLogger(__name__)
 
-def generate_prompt_for_default_strategy(entry: dict, model_type: str | None = None) -> str:
-    """Generates the default prompt for the LLM using the standardized parser."""
-    parsed_data = parse_question_data(entry)
-    
-    template = default_prompts.DEFAULT_PROMPT_TEMPLATE
-    if model_type == "gemini":
-        template = default_prompts.GEMINI_PROMPT_TEMPLATE
-        
-    return template.format(
-        vignette=parsed_data['vignette'],
-        question_stem=parsed_data['question_stem'],
-        option_a=parsed_data['options_dict'].get('A', 'Option A not provided'),
-        option_b=parsed_data['options_dict'].get('B', 'Option B not provided'),
-        option_c=parsed_data['options_dict'].get('C', 'Option C not provided')
-    )
-
-def run_default_strategy(data: list[dict], model_config_item: dict) -> list[dict]:
+def run_default_strategy(
+    parsed_questions: List[Dict[str, Any]], 
+    model_config: Dict[str, Any],
+    processing_animation: LoadingAnimation,
+    current_model_config_id: str
+) -> Dict[str, Any]:
     """
-    Processes each question entry using the specified LLM, expecting only a single letter answer.
-    Uses the standardized prompt generation.
+    Runs the default essay generation strategy for a given model and list of questions.
+
+    Args:
+        parsed_questions: List of parsed question data.
+        model_config: Configuration for the LLM.
+        processing_animation: Instance of LoadingAnimation for UI updates.
+        current_model_config_id: The config_id of the model being processed.
+
+    Returns:
+        A dictionary containing results, total tokens, total time, etc.
     """
     results = []
-    total_questions = len(data)
-    config_id = model_config_item.get("config_id", model_config_item.get("model_id"))
-    model_type = model_config_item.get("type")
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_time_taken = 0
+    successful_generations = 0
+    num_questions = len(parsed_questions)
+
+    for i, question_data in enumerate(parsed_questions):
+        if processing_animation and hasattr(processing_animation, 'message'):
+            processing_animation.message = f"Processing with {current_model_config_id} (Default Essay): {i+1}/{num_questions} questions"
+        try:
+            prompt = BASIC_ESSAY_PROMPT.format(**question_data)
+        except KeyError as e:
+            logger.error(f"Missing key for prompt formatting in question_data for question {i}: {e}. Data: {question_data}")
+            result_item = {
+                **question_data, 
+                "prompt": "ERROR: Prompt formatting failed due to missing key.",
+                "llm_answer": "ERROR: Prompt formatting failed.",
+                "raw_llm_answer": "",
+                "cleaned_llm_answer": "",
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "response_time": 0,
+                "model_id": model_config.get("model_id"),
+                "config_id": model_config.get("config_id"),
+                "strategy": "default_essay",
+                "error": f"Prompt formatting failed: Missing key {e}"
+            }
+            results.append(result_item)
+            continue 
     
-    loading_animation = None
-    
-    for thread in threading.enumerate():
-        if hasattr(thread, '_target') and thread._target and 'LoadingAnimation' in str(thread._target):
-            frame = sys._current_frames().get(thread.ident)
-            if frame:
-                loading_animation = next((lv for lv in frame.f_locals.values() if isinstance(lv, ui_utils.LoadingAnimation)), None)
-            if loading_animation: 
-                break
+        result_item = {
+            **question_data, 
+            "prompt": prompt,
+            "llm_answer": "", 
+            "raw_llm_answer": "",
+            "cleaned_llm_answer": "",
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "response_time": 0,
+            "model_id": model_config.get("model_id"),
+            "config_id": model_config.get("config_id"),
+            "strategy": "default_essay",
+            "error": None
+        }
 
-    for i, entry in enumerate(data):
-        if loading_animation:
-            loading_animation.update_progress(i + 1, total_questions)
-            loading_animation.message = f"Processing Q{i+1}/{total_questions} with {config_id} (Default Strategy)"
+        try:
+            llm_response_data = llm_clients.get_llm_response(
+                prompt=prompt, 
+                model_config=model_config,
+                is_json_response_expected=False 
+            )
 
-        logger.info(f"Processing question {i + 1}/{total_questions} with model {config_id} (Default Strategy)...")
-        
-        prompt = generate_prompt_for_default_strategy(entry, model_type=model_type)
-        
-        llm_data = llm_clients.get_llm_response(prompt, model_config_item)
-
-        llm_answer = ""
-        is_correct = None
-        response_time = None
-        current_input_tokens = None
-        current_output_tokens = None
-        answer_length = 0
-        raw_response_text = None
-        error_message = None
-
-        if llm_data:
-            response_time = llm_data.get('response_time')
-            current_input_tokens = llm_data.get('input_tokens')
-            current_output_tokens = llm_data.get('output_tokens')
-            raw_response_text = llm_data.get('raw_response_text')
-            error_message = llm_data.get('error_message')
-
-            if raw_response_text:
+            if llm_response_data and not llm_response_data.get("error_message"):
+                raw_answer = llm_response_data.get("response_content", "")
+                cleaned_answer = clean_llm_answer_for_similarity(raw_answer)
                 
-                
-                
-                matches = re.findall(r"\b([A-D])\b", raw_response_text, re.IGNORECASE)
-                if matches:
-                    
-                    llm_answer = matches[-1].upper()
-                    logger.info(f"Q {i + 1} ({config_id}): Default strategy extracted last standalone letter '{llm_answer}' from response: '{raw_response_text[:100]}...'")
-                else:
-                    
-                    logger.warning(f"Q {i + 1} ({config_id}): Default strategy failed to extract any standalone A, B, C, or D from response: '{raw_response_text[:100]}...'")
-                    llm_answer = "PARSE_FAIL"
-            else: 
-                 logger.warning(f"Q {i + 1} ({config_id}): Default strategy received no raw response text.")
-                 llm_answer = "PARSE_FAIL" 
-
-            
-            if error_message:
-                logger.warning(f"Q {i + 1} ({config_id}): Problem with LLM call: {error_message}")
-                llm_answer = "ERROR"
-            
-            answer_length = len(llm_answer) if llm_answer not in ["ERROR", "PARSE_FAIL"] else 0
-
-            
-            correct_answer_str = str(entry.get('correctAnswer', '')).strip().upper()
-            if not correct_answer_str or "PLACEHOLDER" in correct_answer_str:
-                logger.warning(f"Q {i + 1} ({config_id}): Correct answer missing/placeholder. Cannot evaluate correctness.")
-                is_correct = None
-            elif llm_answer in ["ERROR", "PARSE_FAIL"]:
-                is_correct = False
-                logger.warning(f"Q {i + 1} ({config_id}): LLM response resulted in error or parse failure ('{llm_answer}'). Marked as incorrect.")
-            elif not llm_answer or llm_answer not in ["A", "B", "C", "D"]: 
-                is_correct = False
-                logger.warning(f"Q {i + 1} ({config_id}): LLM provided an empty or invalid answer ('{llm_answer}'). Marked as incorrect.")
+                result_item.update({
+                    "llm_answer": cleaned_answer, 
+                    "raw_llm_answer": raw_answer,
+                    "cleaned_llm_answer": cleaned_answer,
+                    "input_tokens": llm_response_data.get("input_tokens"),
+                    "output_tokens": llm_response_data.get("output_tokens"),
+                    "response_time": llm_response_data.get("response_time"),
+                    "answer_length": len(cleaned_answer) 
+                })
+                successful_generations += 1
+                if llm_response_data.get("input_tokens") is not None: total_input_tokens += llm_response_data.get("input_tokens")
+                if llm_response_data.get("output_tokens") is not None: total_output_tokens += llm_response_data.get("output_tokens")
+                if llm_response_data.get("response_time") is not None: total_time_taken += llm_response_data.get("response_time")
             else:
-                is_correct = (llm_answer == correct_answer_str)
-
-            log_time = f", Time: {response_time:.2f}s" if response_time is not None else ""
-            logger.info(f"Q {i + 1} ({config_id}): LLM Ans: '{llm_answer}', Correct: '{correct_answer_str}', Match: {is_correct}{log_time}")
-        else:
-            logger.error(f"Q {i + 1} ({config_id}): Failed to get any valid LLM response (API call likely failed).")
-            llm_answer = "ERROR"
-            is_correct = False
-
-        updated_entry = entry.copy()
-        updated_entry.update({
-            'LLM_answer': llm_answer,
-            'is_correct': is_correct,
-            'response_time': response_time,
-            'input_tokens': current_input_tokens,
-            'output_tokens': current_output_tokens,
-            'answer_length': answer_length,
-            'raw_response_text': raw_response_text,
-            'error': error_message,
-            'prompt_strategy': 'default'
-        })
-        results.append(updated_entry)
-
-    if loading_animation: 
-        loading_animation.stop()
+                error_message = llm_response_data.get("error_message", "Unknown error") if llm_response_data else "LLM call failed (returned None)"
+                logger.error(f"Error with {model_config.get('config_id')} (Default) for question {question_data.get('question_id', i)}: {error_message}")
+                result_item.update({
+                    "llm_answer": f"ERROR: {error_message}",
+                    "raw_llm_answer": "",
+                    "cleaned_llm_answer": "",
+                    "error": error_message,
+                    "input_tokens": llm_response_data.get("input_tokens") if llm_response_data else 0,
+                    "output_tokens": llm_response_data.get("output_tokens") if llm_response_data else 0,
+                    "response_time": llm_response_data.get("response_time") if llm_response_data else 0,
+                    "answer_length": 0 
+                })
+                if llm_response_data and llm_response_data.get("response_time") is not None:
+                    total_time_taken += llm_response_data.get("response_time")
         
-    return results 
+        except Exception as e:
+            logger.error(f"Strategy level exception for {model_config.get('config_id')} (Default) question {question_data.get('question_id', i)}: {e}", exc_info=True)
+            result_item.update({
+                "llm_answer": f"ERROR: {str(e)}",
+                "raw_llm_answer": "",
+                "cleaned_llm_answer": "",
+                "error": str(e),
+                "answer_length": 0 
+            })
+
+        results.append(result_item)
+
+    avg_latency = total_time_taken / num_questions if num_questions > 0 else 0
+    
+    return {
+        "results": results,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "total_tokens": total_input_tokens + total_output_tokens,
+        "total_time_taken_seconds": total_time_taken,
+        "average_latency_ms": avg_latency * 1000, 
+        "successful_generations": successful_generations,
+        "total_questions": num_questions
+    } 

@@ -4,89 +4,121 @@
   </a>
 </p>
 
-# CFA MCQ Question Reproducer
+# CFA Essay Question Answer Generator & LLM Benchmark
 
-This project processes CFA MCQ questions using various Large Language Models (LLMs)
-and evaluates their performance. It features an interactive UI with loading animations
-and progress indicators to provide real-time feedback during processing.
+This project provides a robust framework for generating and evaluating essay-style answers to Chartered Financial Analyst (CFA) program questions using a diverse set of Large Language Models (LLMs). It features an interactive command-line interface (CLI) with loading animations and progress indicators, facilitating a comprehensive benchmarking workflow. The primary goal is to assess LLM capabilities in generating high-quality, contextually relevant financial essays and to provide a reproducible research platform.
+
+## Essay Generation and Evaluation Process
+
+The core pipeline is designed for rigorous benchmarking:
+
+1.  **Data Ingestion:** Loads CFA essay questions from `data/updated_data.json`. Each entry is expected to contain `folder` (topic), `vignette` (context/scenario), `question` (the essay prompt), and `explanation` (a reference/gold-standard answer).
+2.  **Interactive Configuration:** Users select from a range of LLMs and prompting strategies (e.g., direct generation, Chain-of-Thought, Self-Discover) via the CLI.
+3.  **Essay Generation:** The system dispatches questions (formatted with vignette, question text, and topic) to the chosen LLMs, which then generate essay-style responses.
+4.  **Comprehensive Evaluation:** Generated essays undergo a multi-faceted evaluation:
+    *   **LLM Self-Grading:** The generating LLM (or a designated evaluation LLM) assesses its own output against the reference `explanation` based on a structured rubric, providing a score and justification.
+    *   **Semantic Similarity:**
+        *   **Cosine Similarity:** TF-IDF vectors are used to calculate the cosine similarity between the generated essay and the reference `explanation`.
+        *   **ROUGE Scores:** ROUGE-L (Precision, Recall, F1-measure) is calculated to assess overlap with the reference answer.
+    *   **Resource & Cost Tracking:** Input/output tokens, processing latency, and estimated API costs are meticulously recorded for each generation.
+5.  **Results Persistence:** All generated essays, detailed evaluation scores, performance metrics, and configuration metadata are saved to JSON files in the `results/` directory for later analysis and reproducibility. Detailed per-item results are also saved.
+6.  **Visualization & Reporting:** A suite of plots is generated to compare and analyze model/strategy performance (see "Visualizations and Analysis" section). A summary report is also printed to the console.
 
 ## Benchmark Overview
 
-This comprehensive LLM benchmark evaluates the performance of state-of-the-art language models on CFA multiple-choice questions, measuring both accuracy and efficiency metrics.
+This LLM benchmark evaluates state-of-the-art language models on their proficiency in tackling CFA **essay questions**. It measures the quality of generated content, semantic alignment with reference answers, and various efficiency metrics.
 
 <table>
 <thead>
 <tr>
-<th align="center">Benchmark Statistics</th>
+<th align="center">Benchmark Component</th>
 <th align="center">Details</th>
-<th align="center">Count</th>
+<th align="center">Approx. Count</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td align="center"><strong>Models</strong></td>
-<td>Claude-3.7-Sonnet, Claude-3.5-Sonnet, Claude-3.5-Haiku, Mistral-Large, Codestral, Palmyra-fin, GPT-4o, O3-mini, O4-mini, GPT-4.1, GPT-4.1-mini, GPT-4.1-nano, Grok-3, Grok-3-mini-beta (high/low effort), Gemini-2.5-Pro, Gemini-2.5-Flash, Deepseek-R1, Llama-4-Maverick, Llama-4-Scout, Llama-Guard-4, Llama-3.3-70B, Llama-3.1-8B-instant</td>
-<td align="center"><strong>22+</strong></td>
+<td align="center"><strong>Models Evaluated</strong></td>
+<td>Includes a diverse set such as Claude-3 series (Sonnet, Haiku), Mistral series (Large, Codestral), Palmyra-fin, GPT series (GPT-4o, GPT-4.1, -mini, -nano), Grok series, Gemini series (2.5 Pro, 2.5 Flash), Deepseek-R1, Llama series (Llama-4, Llama-3.3, Llama-3.1), and others. Models are configurable in <code>src/configs/default_config.py</code>.</td>
+<td align="center"><strong>20+</strong></td>
 </tr>
 <tr>
-<td align="center"><strong>Strategies</strong></td>
-<td>Default, Chain of Thought (CoT), Self-Discover, Self-Consistency with different sample sizes (N=3, N=5)</td>
-<td align="center"><strong>3-5</strong></td>
+<td align="center"><strong>Prompting Strategies</strong></td>
+<td>Default Essay (single pass), Self-Consistency Essay (N=3, N=5 samples using CoT), Self-Discover Essay. All strategies are adapted for essay generation.</td>
+<td align="center"><strong>4</strong></td>
 </tr>
 <tr>
-<td align="center"><strong>Metrics</strong></td>
-<td>Accuracy, Precision, Recall, F1 score, Average Latency (ms), Total Input Tokens, Total Output Tokens, Total Tokens, Average Answer Length, Total Cost, Total Run Time</td>
-<td align="center"><strong>11</strong></td>
+<td align="center"><strong>Key Evaluation Metrics</strong></td>
+<td>LLM Self-Graded Score (1-10), Cosine Similarity, ROUGE-L (Precision, Recall, F1-measure), Average Latency (ms), Total Input/Output Tokens, Average Answer Length, Total API Cost ($), Total Run Time (s).</td>
+<td align="center"><strong>10+</strong></td>
 </tr>
 <tr>
-<td align="center"><strong>Visualizations</strong></td>
-<td>Model-Strategy Accuracy Comparison, Average Processing Time, Total Output Tokens, Combined Performance (Accuracy & Time), Accuracy/F1 Comparison (Default vs SC-CoT), Self-Consistency CoT Comparison (N=3 vs N=5), Accuracy/F1 vs Time Trade-off, Accuracy/F1 vs Cost Trade-off, Latency vs Cost Trade-off, Total Run Time Comparison, Default Strategy Metric Comparisons (Accuracy, F1, Latency), Confusion Matrices</td>
+<td align="center"><strong>Core Visualizations</strong></td>
+<td>Distribution of Cosine Similarity Scores (KDE), Cosine Similarity vs. Self-Evaluation Score (Scatter + Regression), Error Heatmap (Cosine vs. Self-Eval Binned), LLM Self-Grading Calibration Curve, Radar Chart of Evaluation Dimensions. Additional plots include Model/Strategy comparisons for all key metrics, trade-off scatter plots (e.g., Score vs. Latency, Score vs. Cost), and detailed per-item result analysis.</td>
 <td align="center"><strong>15+</strong></td>
 </tr>
 </tbody>
 </table>
 
-This benchmark analyzes over 22 state-of-the-art LLMs across multiple reasoning strategies, measuring 11 performance metrics, and generating 15+ detailed visualization plots to evaluate and compare their performance on CFA multiple-choice questions.
+This benchmark framework facilitates in-depth analysis of over 20 LLMs across multiple advanced prompting strategies, all tailored for essay generation. It measures a rich set of performance and quality metrics, and produces a wide array of visualizations to support rigorous evaluation of LLM capabilities on CFA essay questions.
 
 ## Project Structure
 
+The project is organized to promote modularity and ease of extension:
+
 ```
-CFA_MCQ_REPRODUCER/
+CFA_MCQ_REPRODUCER/  # Project Root (Note: actual name might vary, e.g., CFA_ESSAY_REPRODUCER)
 ├── data/
-│   └── updated_data.json  # Input MCQ data (questions, correct answers)
+│   └── updated_data.json      # Input essay question data (vignette, question, topic, explanation).
+├── img/
+│   └── *.png                  # Images for README.
 ├── results/
-│   ├── comparison_charts/ # Output charts comparing model performance
-│   └── *.json             # Raw JSON outputs for each model run
+│   ├── comparison_charts/     # Directory for all generated plots.
+│   ├── evaluated_results_*.json # Per-item detailed evaluation results for each run.
+│   └── response_data_*.json   # Raw JSON outputs from LLM strategies.
+│   └── model_warnings.log     # Log file for warnings encountered during model runs.
 ├── src/
 │   ├── __init__.py
-│   ├── config.py          # API keys, file paths, model configs, global settings
-│   ├── llm_clients.py     # Functions for interacting with LLM APIs
-│   ├── evaluations/       # Directory for performance evaluation modules
-│   │   ├── classification.py # Classification metrics (accuracy, F1, etc.)
-│   │   ├── resource_metrics.py # Resource usage (tokens, latency)
-│   │   ├── cost_evaluation.py  # Cost estimation for various LLM providers
-│   │   └── __init__.py
-│   ├── plotting.py        # Chart generation functions
-│   ├── prompts/           # Directory for LLM prompt templates
-│   │   └── default.py     # Default prompt templates
-│   │   └── cot.py         # Chain of Thought prompt templates
-│   ├── utils/             # Utility functions
-│   │   ├── ui_utils.py    # UI utilities (loading animations, colored output)
-│   │   ├── prompt_utils.py # Prompt generation and parsing utilities
-│   │   └── __init__.py    # (Likely, or add if not present)
-│   └── main.py            # Main script to run the pipeline
-├── .env                   # Local environment variables (API keys). Not version controlled.
-├── requirements.txt       # Python package dependencies
-└── README.md              # This file
+│   ├── config.py              # Global settings, API key names, default paths.
+│   ├── llm_clients.py         # LLM API interaction layer.
+│   ├── configs/               # Model configurations and parameters.
+│   │   ├── __init__.py
+│   │   └── default_config.py  # Primary configuration for models and their parameters.
+│   ├── evaluations/           # Evaluation metric calculation modules.
+│   │   ├── __init__.py
+│   │   ├── essay_evaluation.py  # Cosine similarity, ROUGE, LLM self-grading.
+│   │   └── resource_metrics.py  # Token counting, latency calculation.
+│   │   └── cost_evaluation.py   # API cost estimation.
+│   ├── prompts/               # LLM prompt templates and formatting functions.
+│   │   ├── __init__.py
+│   │   ├── cot.py               # Chain-of-Thought prompts for essays.
+│   │   ├── self_discover.py     # Self-Discover prompts for essays.
+│   │   └── default.py           # Basic essay prompts.
+│   ├── strategies/            # Different prompting strategy implementations.
+│   │   ├── __init__.py
+│   │   ├── default.py
+│   │   ├── self_consistency.py
+│   │   └── self_discover.py
+│   ├── utils/                 # Utility functions.
+│   │   ├── __init__.py
+│   │   ├── ui_utils.py        # CLI animations and colored output.
+│   │   ├── prompt_utils.py    # Prompt generation and data parsing utilities.
+│   │   └── text_utils.py      # Text cleaning functions for LLM answers.
+│   ├── main.py                # Main script to orchestrate the pipeline.
+│   └── plotting.py            # Script to generate all evaluation plots.
+├── .env                       # Local environment variables (API keys). Not version controlled.
+├── .env.example               # Example .env file structure.
+├── requirements.txt           # Python package dependencies.
+└── README.md                  # This file.
 ```
 
 ## Setup
 
-1.  **Clone the repository (if applicable) or ensure you have this directory structure.**
+1.  **Clone the repository (if applicable).**
 
-2.  **Create a virtual environment (recommended):**
+2.  **Create and activate a virtual environment (recommended):**
     ```bash
-    python -m venv venv
+    python3 -m venv venv
     source venv/bin/activate  # On Windows use `venv\Scripts\activate`
     ```
 
@@ -96,122 +128,110 @@ CFA_MCQ_REPRODUCER/
     ```
 
 4.  **Set up API Keys:**
-    Create a `.env` file in the `CFA_MCQ_REPRODUCER` directory (i.e., at the same level as `src/` and `data/`).
-    Add your API keys to this file. Example `.env` content:
+    Copy `.env.example` to `.env` in the project root directory.
+    Add your API keys to this `.env` file. The script will load these variables.
 
     ```env
+    # Example .env content
     OPENAI_API_KEY="your_openai_api_key"
-    GEMINI_API_KEY="your_gemini_api_key"
-    XAI_API_KEY="your_xai_api_key_for_grok"
-    WRITER_API_KEY="your_writer_api_key"
-    AWS_ACCESS_KEY_ID="your_aws_access_key_id"
-    AWS_SECRET_ACCESS_KEY="your_aws_secret_access_key"
-    AWS_REGION="your_aws_region" # e.g., us-east-1
-    GROQ_API_KEY="your_groq_api_key"
     ANTHROPIC_API_KEY="your_anthropic_api_key"
+    GEMINI_API_KEY="your_gemini_api_key"
+    # ... add other keys as needed (Mistral, Groq, AWS, etc.)
     ```
-    The script will load these variables. Alternatively, you can set them as system environment variables.
 
 5.  **Prepare Input Data:**
-    - Place your MCQ data file into the `CFA_MCQ_REPRODUCER/data/` directory. The script currently expects a file named `updated_data.json` (configurable in `src/config.py`).
-    - **Required Data Structure:** The JSON file must contain a list of objects, where each object represents a question and should include keys like `question`, `options` (a dictionary like `{"A": "...", "B": "..."}`), `correct_answer` (the letter key, e.g., "A"), and potentially `explanation` or other metadata.
+    - Ensure your essay question data file, `updated_data.json`, is located in the `data/` directory.
+    - **Required Data Structure:** `updated_data.json` must be a JSON list, where each object represents an essay question and includes:
+        - `folder`: (string) The topic or category (e.g., "Portfolio Management").
+        - `vignette`: (string) The context or scenario for the question.
+        - `question`: (string) The essay question prompt.
+        - `explanation`: (string) The reference or model answer for evaluation.
+        - (Optional but recommended) `question_hash` or a unique `question_id`.
 
 ## Running the Pipeline
 
-Navigate to the `CFA_MCQ_REPRODUCER` directory in your terminal.
-Run the main script as a module:
+Navigate to the project root directory in your terminal. Run the main script as a module:
 
 ```bash
-python -m src.main
+python3 -m src.main
 ```
 
-This will:
-- Load data from `data/updated_data.json` with a loading animation.
-- **Prompt you to choose a run mode:**
-  - **Full Evaluation:** Runs all available models with the Default, Self-Consistency CoT (N=3), and Self-Consistency CoT (N=5) strategies automatically.
-  - **Custom Run:** Allows you to interactively select specific models and a single strategy to run.
-- Process each question with the selected configurations, showing real-time progress.
-- Display colored success/error messages for each operation.
-- Save detailed results for each model-strategy combination to a JSON file in the `results/` directory.
-- Calculate and display evaluation metrics (e.g., accuracy, F1 score, estimated cost).
-- **Save an aggregated summary of all metrics** to `results/all_runs_summary_metrics.csv`.
-- Generate a comprehensive suite of comparison charts in `results/comparison_charts/`.
-- Present a formatted summary table of results in the console.
+This will initiate the following workflow:
+- Load essay question data from `data/updated_data.json` (with loading animation).
+- **Prompt you to interactively select LLM models and essay generation strategies.**
+- Process each question with the chosen configurations, displaying real-time progress updates.
+- Evaluate generated essays using semantic similarity (Cosine, ROUGE-L), LLM self-grading, and resource metrics.
+- Display informative status messages (success, error, info, warning) with color coding.
+- Save generated essays, detailed evaluation scores, and metadata to uniquely named JSON files in the `results/` directory.
+- Generate a comprehensive set of plots in `results/comparison_charts/`.
+- Print a formatted summary table of the run's performance to the console.
 
 ### Interactive UI Features
 
-The program now includes several UI enhancements:
-
-1. **Loading Animations**: Displayed during long-running operations like:
-   - Data loading
-   - Model selection
-   - LLM processing (with progress updates)
-   - Evaluation
-   - Chart generation
-   - Results saving
-
-2. **Progress Indicators**: Shows real-time progress during LLM processing:
-   ```
-   Processing with GPT-4 [15/50] ⠋
-   ```
-
-3. **Colored Output**:
-   - ✓ Success messages in green
-   - ✗ Error messages in red
-   - ℹ Info messages in blue
-   - ⚠ Warning messages in yellow
-
-4. **Real-time Processing**: View the progress as the selected LLMs process the questions:
-
-![Real-time LLM processing progress](img/exec_llm.png)
-
-5. **Formatted Results Summary**: Displays a clear table of results at the end of processing:
-
-![Formatted results summary table](img/llm_results.png)
-
-6.  **Performance Visualization**: Generates and saves a suite of comparison charts in `results/comparison_charts/` for comprehensive analysis of model and strategy performance. Interactive HTML versions are also saved alongside static PNG images. Key outputs include:
-    *   **Aggregated Metrics Summary (`results/all_runs_summary_metrics.csv`)**: A CSV file containing key metrics for every model-strategy combination executed. Columns include: `run_id`, `model_id_full`, `base_model_id`, `strategy_name`, `strategy_type`, `strategy_param`, `display_name`, `accuracy`, `f1_score`, `avg_time_per_question`, `total_run_time`, `total_output_tokens`, `total_cost`.
-    *   **Model-Strategy Accuracy Comparison (`model_strategy_comparison_accuracy.png`/`.html`)**: Bar chart visualizing the accuracy scores for each model-strategy combination. Higher bars denote better performance.
-    *   **Average Processing Time per Question (`model_strategy_comparison_response_time.png`/`.html`)**: Bar chart showing the average time (in seconds) each model-strategy took per question. Lower bars indicate faster processing.
-    *   **Total Output Tokens Generated (`model_strategy_comparison_output_tokens.png`/`.html`)**: Bar chart illustrating the total output tokens generated by each configuration. Useful for assessing verbosity and potential costs.
-    *   **Combined Performance: Accuracy & Avg. Question Time (`model_strategy_combined_metrics.png`/`.html`)**: Dual-axis chart presenting accuracy (bars) and average processing time (line) together for evaluating speed vs. accuracy trade-offs.
-    *   **Accuracy/F1 Comparison: Default vs. SC-CoT (N=3) (`comparison_<metric>_by_strategy.png`/`.html`)**: Grouped bar chart directly comparing the performance (Accuracy and F1 Score) of the Default strategy against the Self-Consistency CoT (N=3) strategy for each base model.
-    *   **Self-Consistency CoT Comparison: N=3 vs. N=5 (`comparison_sc_<metric>_n3_vs_n5.png`/`.html`)**: Grouped bar chart comparing the performance (Accuracy and F1 Score) between N=3 and N=5 samples for the Self-Consistency CoT strategy across models.
-    *   **Accuracy/F1 vs. Time Trade-off (`tradeoff_<metric>_vs_time.png`/`.html`)**: Scatter plot visualizing the relationship between performance (Accuracy or F1 Score) on the Y-axis and Average Time per Question on the X-axis. Points are colored by model and shaped by strategy type, helping identify efficient configurations.
-    *   **Total Run Time Comparison by Strategy (`comparison_total_time_by_strategy.png`/`.html`)**: Grouped bar chart showing the *total* time taken to process all questions for each model, grouped by strategy. This provides a view of the overall execution duration for each configuration.
-    *   **Default Strategy - Accuracy Comparison (`default_strategy_accuracy_comparison.png`/`.html`)**: Bar chart comparing the accuracy of all tested models when using only the 'default' prompt strategy. Allows for clear model-to-model comparison under the baseline strategy.
-    *   **Default Strategy - F1 Score Comparison (`default_strategy_f1_score_comparison.png`/`.html`)**: Bar chart comparing the F1-score of all tested models when using only the 'default' prompt strategy.
-    *   **Default Strategy - Latency Comparison (`default_strategy_average_latency_ms_comparison.png`/`.html`)**: Bar chart comparing the average processing time (latency in milliseconds) of all tested models when using only the 'default' prompt strategy.
+The CLI provides an enhanced user experience:
+1.  **Loading Animations**: For operations like data loading, model processing, and results saving.
+2.  **Per-Question Progress Indicators**: During LLM processing (e.g., `Processing with gpt-4o (Default Essay): [15/50] questions ⠋`).
+3.  **Colored Console Output**: For clear distinction of success (✓ green), error (✗ red), info (ℹ blue), and warning (⚠ yellow) messages.
+4.  **Formatted Results Summary**: A detailed table summarizing key metrics for each model/strategy combination at the end of the run.
 
 ## Configuration
 
--   **Supported LLM Providers and Models:** This project is designed to work with a variety of LLM providers. Support is integrated for:
-    - OpenAI (e.g., GPT-4o, GPT-4.1 series)
-    - Google Gemini (e.g., Gemini 2.5 Pro, Gemini 2.5 Flash with `thinking_budget`)
-    - Anthropic (e.g., Claude 3.7 Sonnet, Claude 3.5 Sonnet & Haiku)
-    - Groq (e.g., Llama 4 Maverick/Scout, Llama 3.3 70B, Llama 3.1 8B, with `reasoning_effort` for Grok models)
-    - Writer.com (e.g., Palmyra-fin)
-    - xAI (e.g., Grok-3)
-    - AWS Bedrock (various models like Deepseek, Mistral, Meta Llama)
-    - AWS SageMaker (custom deployed endpoints)
-    Specific model IDs, versions, and their parameters are defined within the Python files in the `src/configs/` directory (e.g., `default_config.py`, `cot_config.py`).
+-   **LLM Models & Parameters:**
+    -   The primary configuration file for defining models, their API identifiers, types (mapping to `llm_clients.py`), and specific parameters (e.g., `temperature`, `max_output_tokens`, `thinking_budget` for Gemini, `reasoning_effort` for Grok) is `src/configs/default_config.py`.
+    -   Users can add, remove, or modify model entries in this file to customize the benchmark.
+    -   Example model entry in `src/configs/default_config.py`:
+        ```python
+        {
+            "config_id": "gemini-2.5-pro-flash-budgeted", # Descriptive ID for this run
+            "type": "gemini",                             # Maps to a client in llm_clients.py
+            "model_id": "gemini-1.5-flash-001",           # Actual API model ID
+            "parameters": {
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "max_output_tokens": 2048, # Suitable for essays
+                "thinking_budget": 1000    # Example for specific models
+            }
+        }
+        ```
+-   **API Keys & Global Settings:** While API keys are best managed via the `.env` file, other global settings like default data/results paths or retry configurations can be found in `src/config.py`.
+-   **Prompt Templates:**
+    -   General essay prompts are in `src/prompts/default.py`.
+    -   Chain-of-Thought essay prompts are in `src/prompts/cot.py` (template `ESSAY_COT_PROMPT`, formatter `format_essay_cot_prompt`).
+    -   Self-Discover essay prompts are in `src/prompts/self_discover.py` (template `ESSAY_SELF_DISCOVER_PROMPT_TEMPLATE`, formatter `format_self_discover_prompt`).
+    These can be modified to tailor the LLM's approach to essay generation.
 
--   **Model Selection & Parameters:** Edit the configuration files within the `src/configs/` directory (e.g., `default_config.py`). These files list the available models (`config_id`), their corresponding API identifiers (`model_id`), types (`type` which maps to the correct API client in `llm_clients.py`), and strategy-specific parameters. You can add, remove, or modify entries here to control which models are available for selection and how they behave.
-    - For example, a model configuration entry might look like this:
-      ```python
-      {
-          "config_id": "gemini-2.5-flash",
-          "type": "gemini",
-          "model_id": "gemini-2.5-flash-preview-04-17",
-          "parameters": {
-              "top_p": 0.95,
-              "top_k": 64,
-              "max_output_tokens": 10,
-              "thinking_budget": 0 
-          }
-      }
-      ```
-    - Note that some models support unique parameters that significantly affect their behavior and cost, such as `thinking_budget` for certain Gemini models (e.g., Gemini 2.5 Flash) or `reasoning_effort` for Groq models (e.g., `grok-3-mini-beta`). Ensure these are configured appropriately in the `parameters` section of the model's configuration.
-    - Groq models (`grok-3-mini-beta` and `grok-3-mini-fast-beta`) now have configurations for `high` and `low` `reasoning_effort` respectively.
--   **API Keys & File Paths:** Global settings like API key environment variable names and default data/results paths can be adjusted in `src/config.py` if needed, though using the `.env` file is recommended for keys.
--   **Prompt Templates:** Modify or add prompt templates in the `src/prompts/` directory (e.g., `default.py`, `cot.py`) to change how questions are presented to the LLMs for different strategies.
+## Visualizations and Analysis
+
+The plotting module (`src/plotting.py`) generates a rich suite of visualizations saved in `results/comparison_charts/`, enabling thorough analysis of LLM performance:
+
+📊 **1. Distribution of Cosine Similarity Scores**
+   - **Type:** Kernel Density Estimate (KDE) Plot.
+   - **Why:** Shows the semantic similarity distribution of generated answers compared to reference answers. Helps visualize consistency and central tendency of similarity scores across models/strategies.
+   - **Implementation:** X-axis: Cosine similarity score (0-1); Y-axis: Density; Hue/Color: LLM model; Facets: Prompting strategy.
+
+📈 **2. Correlation: Cosine Similarity vs. Self-Evaluation Scores**
+   - **Type:** Scatter Plot with Regression Line.
+   - **Why:** Measures the alignment between automated semantic similarity (cosine) and the LLM's own assessment of its answer quality.
+   - **Implementation:** X-axis: Cosine similarity; Y-axis: Self-evaluation score (1–10); Points: Individual answers; Annotations: Pearson correlation coefficient (r) and p-value.
+
+🔍 **3. Error Heatmap: Cosine Similarity vs. Self-Evaluation**
+   - **Type:** 2D Heatmap.
+   - **Why:** Visualizes mismatches or agreements between cosine similarity and self-evaluation scores by showing the density of answers in binned categories. Highlights areas where automated metrics and LLM judgment diverge.
+   - **Implementation:** X-axis: Binned Cosine similarity; Y-axis: Binned Self-evaluation score; Color: Number of instances per bin.
+
+🧠 **4. LLM Self-Grading Calibration Curve**
+   - **Type:** Line Plot (Calibration Curve).
+   - **Why:** Evaluates how well an LLM's self-assigned confidence scores (self-grades) correlate with an objective performance metric (e.g., cosine similarity or ROUGE-L F1).
+   - **Implementation:** X-axis: Self-evaluation score bin (1–10); Y-axis: Mean of the chosen performance metric for that bin; Shaded Area: Confidence intervals.
+
+📌 **5. Radar Chart of Evaluation Dimensions**
+   - **Type:** Radar / Spider Plot.
+   - **Why:** Compares models or model-strategy combinations across multiple normalized evaluation dimensions (e.g., cosine similarity, self-grade, ROUGE-L F1, ROUGE-L Precision, ROUGE-L Recall).
+   - **Implementation:** Each axis: An evaluation metric (normalized to 0-1); Each polygon: A model-strategy pair.
+
+**Additional Aggregated Plots:**
+-   Bar charts comparing models and strategies across all key metrics (e.g., average scores, latency, cost).
+-   Scatter plots illustrating trade-offs (e.g., average ROUGE-L F1 vs. average latency; average ROUGE-L F1 vs. total cost).
+-   Specific comparisons for Self-Consistency (N=3 vs. N=5) performance.
+
+This comprehensive suite of visualizations allows researchers and developers to dissect model performance from various angles, understand metric correlations, identify outliers, and make informed decisions based on empirical evidence.

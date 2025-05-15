@@ -11,8 +11,7 @@ import google.generativeai as genai
 from writerai import Writer
 from groq import Groq
 import anthropic
-from mistralai.client import MistralClient
-import string
+from mistralai import Mistral
 import writerai
 import tiktoken
 
@@ -30,7 +29,7 @@ def _estimate_tokens_tiktoken(text: str, encoding_name: str = "cl100k_base") -> 
     Returns:
         Estimated token count or None if estimation fails.
     """
-    if not text: # Cannot estimate tokens for empty or None text
+    if not text: 
         return 0
     try:
         encoding = tiktoken.get_encoding(encoding_name)
@@ -65,15 +64,20 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
         prompt: The prompt string to send to the LLM.
         model_config: Dictionary containing model type, ID, parameters.
         is_json_response_expected: If True, attempts to parse the entire response as JSON.
-                                   If False (default), extracts a single letter A,B,C,D.
+                                   If False (default), returns the processed full text response.
 
     Returns:
-        A dictionary containing {'response_content': <parsed_response_or_letter>,
-                                'raw_response_text': <full_response_text>,
-                                'response_time', 'input_tokens', 'output_tokens'},
-        or None if the API call failed or response parsing failed critically.
-        'response_content' will be a dict if is_json_response_expected is True and parsing succeeds,
-        otherwise it will be the extracted letter or "X" on failure.
+        A dictionary containing {'response_content': <parsed_response>,
+                                'raw_response_text': <full_raw_response_text>,
+                                'response_time': <response_time_seconds>,
+                                'input_tokens': <input_token_count_or_None>,
+                                'output_tokens': <output_token_count_or_None>},
+        or None if the API call failed before a response structure could be formed (e.g., missing API key).
+        'response_content':
+            - If 'is_json_response_expected' is True and JSON parsing succeeds: a dictionary.
+            - If 'is_json_response_expected' is True and JSON parsing fails: the string "X".
+            - If 'is_json_response_expected' is False: a string containing the processed full text.
+        An 'error_message' key may be present if issues occurred during the call or parsing.
     """
     model_type = model_config.get("type")
     model_id = model_config.get("model_id")
@@ -217,6 +221,11 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
             if 'max_tokens' not in anthropic_params:
                 anthropic_params['max_tokens'] = 4096 
                 logger.warning(f"'max_tokens' not specified for Anthropic model {config_id}, defaulting to {anthropic_params['max_tokens']}.")
+            if 'timeout' not in anthropic_params:
+                anthropic_params['timeout'] = 1800.0 
+                logger.info(f"Setting explicit timeout of {anthropic_params['timeout']}s for Anthropic call {config_id} as no timeout was specified in config and using non-streaming.")
+            else:
+                logger.info(f"Using timeout {anthropic_params['timeout']}s from config for Anthropic call {config_id}.")
 
             try:
                 api_response = anthropic_client.messages.create(
@@ -262,16 +271,13 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 logger.error(f"Missing Mistral API key for model {config_id}.")
                 return {"error_message": "Missing Mistral API key", "response_time": 0}
             
-            mistral_client = MistralClient(api_key=config.MISTRAL_API_KEY)
+            mistral_client = Mistral(api_key=config.MISTRAL_API_KEY)
             
             mistral_params = parameters.copy()
             mistral_params.pop('response_format', None) 
 
             try:
-                
-                
-                
-                chat_response = mistral_client.chat(
+                chat_response = mistral_client.chat.complete(
                     model=model_id,
                     messages=[{"role": "user", "content": prompt}],
                     **mistral_params
@@ -288,7 +294,9 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 elapsed_time = time.time() - start_time
                 logger.error(f"Mistral API Error for {config_id} after {elapsed_time:.2f}s: {e}. Raw response snippet: {response_text_for_error[:100]}...")
                 error_details = {"type": "MistralAPIError", "message": str(e)}
-                return {"error_message": f"Mistral API Error: {str(e)}", "response_time": elapsed_time, "details": error_details, "raw_response_text": response_text_for_error}
+                if isinstance(e, NotImplementedError) and "This client is deprecated" in str(e):
+                    error_details["message"] = f"Mistral client version is deprecated. {str(e)}"
+                return {"error_message": f"Mistral API Error: {error_details['message']}", "response_time": elapsed_time, "details": error_details, "raw_response_text": response_text_for_error}
 
         elif model_type == "openai":
             if not config.OPENAI_API_KEY:
@@ -352,9 +360,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
             
             if thinking_budget_value is not None:
                 thinking_config = genai.types.ThinkingConfig(thinking_budget=thinking_budget_value)
-                # GenerateContentConfig is the correct type for the generation_config argument in generate_content
-                # if we want to pass a thinking_config.
-                # We pass the existing GenerationConfig's parameters to it.
                 final_generation_config = genai.types.GenerateContentConfig(
                     candidate_count=final_generation_config.candidate_count,
                     stop_sequences=final_generation_config.stop_sequences,
@@ -362,7 +367,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                     temperature=final_generation_config.temperature,
                     top_p=final_generation_config.top_p,
                     top_k=final_generation_config.top_k,
-                    # Add other relevant fields from GenerationConfig if needed in future versions
                     thinking_config=thinking_config
                 )
 
@@ -434,10 +438,8 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 return {"error_message": "Missing Writer API key", "response_time": 0}
             writer_client = Writer(api_key=config.WRITER_API_KEY)
             writer_params = parameters.copy()
-            writer_params.pop('response_format', None) # Non-streaming call doesn't use response_format
-
+            writer_params.pop('response_format', None) 
             try:
-                # Direct non-streaming call
                 api_response = writer_client.chat.chat(
                     messages=[{"role": "user", "content": prompt}],
                     model=model_id,
@@ -446,7 +448,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 
                 response_text_for_error = ""
                 finish_reason = None
-                # Initialize tokens to None before API call or estimation
                 input_tokens = None
                 output_tokens = None
 
@@ -458,9 +459,7 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 else:
                     logger.warning(f"Writer API response for {config_id} did not contain expected choices/message structure.")
 
-                # 2. Attempt to get tokens from API response's usage object
                 if hasattr(api_response, 'usage') and api_response.usage is not None:
-                    # Safely get tokens if attributes exist and are not None
                     prompt_tokens_from_api = getattr(api_response.usage, 'prompt_tokens', None)
                     completion_tokens_from_api = getattr(api_response.usage, 'completion_tokens', None)
                     
@@ -473,7 +472,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 else:
                     logger.warning(f"Writer API response for {config_id} did not contain 'usage' object or it was None. Will attempt estimation if needed.")
                 
-                # 3. If tokens were not fully retrieved from API, estimate them
                 if input_tokens is None or output_tokens is None:
                     logger.warning(f"Writer token count not fully available from API for {config_id} (API In: {input_tokens}, API Out: {output_tokens}). Attempting local estimation for missing values.")
                     
@@ -497,7 +495,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                             output_tokens = 0 
                             logger.info(f"No response text to estimate output tokens for {config_id}; setting output_tokens to 0 as it was not provided by API.")
                 
-                # Handle truncation based on finish_reason
                 if finish_reason == "length":
                     current_elapsed_time = time.time() - start_time
                     error_explanation = f"Writer API: Output truncated due to length limit (max_tokens: {writer_params.get('max_tokens')}). Finish reason: {finish_reason}."
@@ -507,7 +504,7 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                     if is_json_response_expected:
                         try:
                             if response_text_for_error:
-                                json_match = re.search(r"```json\\s*([\\s\\S]*?)\\s*```|({.*?})|(\\[.*?\\])", response_text_for_error, re.DOTALL)
+                                json_match = re.search(r"```json\s*([\s\S]*?)\s*```|({.*?})|(\[.*?\])", response_text_for_error, re.DOTALL)
                                 if json_match:
                                     json_str = next(g for g in json_match.groups() if g is not None)
                                     parsed_content_for_error_case = json.loads(json_str)
@@ -533,7 +530,6 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                         "details": {"type": "TruncatedResponse", "finish_reason": finish_reason}
                     }
 
-            # Catching writerai specific errors if any, or general exceptions
             except writerai.APIError as e_writer_api:
                 current_elapsed_time = time.time() - start_time
                 logger.error(f"Writer API Error for {config_id} after {current_elapsed_time:.2f}s: {e_writer_api}. Raw response snippet: {response_text_for_error[:100]}...")
@@ -548,10 +544,7 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                     "details": error_details, 
                     "raw_response_text": response_text_for_error
                 }
-            # The LengthFinishReasonError exception is specific to the streaming get_final_completion(),
-            # so it's removed here as we are using a non-streaming call.
-            # Broader exceptions will be caught by the generic handler later if not writerai.APIError.
-
+            
         elif model_type == "groq":
             if not config.GROQ_API_KEY:
                 logger.error(f"Missing Groq API key for model {config_id}.")
@@ -682,52 +675,14 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 "output_tokens": output_tokens
             }
     else:
-        cleaned_answer = "X"
-        if response_text_for_error:
-            
-            refusal_phrases = [
-                "cannot answer", 
-                "no options", 
-                "incomplete question", 
-                "not provided",
-                "unable to determine",
-                "cannot provide a response",
-                "question is unclear",
-                "lack sufficient information",
-                "insufficient information"
-            ]
-            
-            
-            refusal_detected = False
-            for phrase in refusal_phrases:
-                if phrase.lower() in response_text_for_error.lower():
-                    logger.warning(f"Refusal phrase '{phrase}' detected in response for {config_id}. Marking as X. Response: '{response_text_for_error[:150]}...'")
-                    cleaned_answer = "X"
-                    refusal_detected = True
-                    break
-            
-            if not refusal_detected:
-                escaped_punctuation = re.escape(string.punctuation)
-                match = re.search(
-                    rf"(?:^|\s|[{escaped_punctuation}])([A-D])(?:$|\s|[{escaped_punctuation}])",
-                    response_text_for_error,
-                    re.MULTILINE 
-                )
-                if match:
-                    cleaned_answer = match.group(1).upper()
-                    logger.info(f"Extracted single letter answer '{cleaned_answer}' for {config_id} from '{response_text_for_error[:100]}...'")
-                else:
-                    fallback_match = re.search(r"([A-D])", response_text_for_error)
-                    if fallback_match:
-                        cleaned_answer = fallback_match.group(1).upper()
-                        logger.warning(f"Used fallback regex to extract single letter answer '{cleaned_answer}' for {config_id} from '{response_text_for_error[:100]}...'")
-                    else:
-                        logger.error(f"Could not extract single letter answer (and no refusal detected) for {config_id} from '{response_text_for_error[:100]}...'. Marking as X.")
-            
+        if response_text_for_error and response_text_for_error.strip():
+            processed_text = response_text_for_error.strip()
+            processed_text = re.sub(r'\s+', ' ', processed_text)
+            parsed_content_for_return = processed_text
+            logger.info(f"Processed full text response for {config_id}: '{processed_text[:100]}...'")
         else:
-            logger.error(f"Empty or no usable response text received for {config_id}. Marking as X.")
-        
-        parsed_content_for_return = {"answer": cleaned_answer, "explanation": ""}
+            logger.warning(f"Empty or no usable response text received for {config_id}. Setting response_content to empty string.")
+            parsed_content_for_return = ""
 
     final_result = {
         

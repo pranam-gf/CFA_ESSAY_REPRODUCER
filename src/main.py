@@ -8,7 +8,7 @@ import json
 import logging
 import numpy as np
 from . import config
-from .evaluations import classification as classification_eval
+from .evaluations import essay_evaluation
 from .evaluations import resource_metrics as resource_eval
 from .evaluations import cost_evaluation
 from . import plotting
@@ -19,7 +19,9 @@ import time
 from .strategies import default as default_strategy
 from .strategies import self_consistency as sc_strategy
 from .strategies import self_discover as sd_strategy
-from .prompts.cot import COHERENT_CFA_COT
+from .prompts.cot import ESSAY_COT_PROMPT
+from .prompts.cot import format_essay_cot_prompt
+from .prompts.self_discover import ESSAY_SELF_DISCOVER_PROMPT_TEMPLATE, format_self_discover_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -36,25 +38,36 @@ def setup_logging():
     logger.info(f"Warning messages (and above) will be logged to: {warning_log_path}")
 
 AVAILABLE_STRATEGIES = {
-    "default": {
+    "default_essay": {
         "function": default_strategy.run_default_strategy,
-        "name": "Default (Single Pass)",
+        "name": "Default Essay (Single Pass)",
         "params": {}
     },
-    "self_consistency_cot_n3": {
+    "self_consistency_essay_n3": {
         "function": sc_strategy.run_self_consistency_strategy,
-        "name": "Self-Consistency CoT (N=3 samples)",
-        "params": {"n_samples": 3, "cot_template": COHERENT_CFA_COT}
+        "name": "Self-Consistency Essay (N=3 samples)",
+        "params": {
+            "n_samples": 3, 
+            "cot_template": ESSAY_COT_PROMPT,
+            "format_cot_prompt_func": format_essay_cot_prompt
+        }
     },
-    "self_consistency_cot_n5": {
+    "self_consistency_essay_n5": {
         "function": sc_strategy.run_self_consistency_strategy,
-        "name": "Self-Consistency CoT (N=5 samples)",
-        "params": {"n_samples": 5, "cot_template": COHERENT_CFA_COT}
+        "name": "Self-Consistency Essay (N=5 samples)",
+        "params": {
+            "n_samples": 5, 
+            "cot_template": ESSAY_COT_PROMPT,
+            "format_cot_prompt_func": format_essay_cot_prompt
+        }
     },
-    "self_discover": {
+    "self_discover_essay": {
         "function": sd_strategy.run_self_discover_strategy,
-        "name": "Self-Discover",
-        "params": {}
+        "name": "Self-Discover Essay",
+        "params": {
+            "reasoning_prompt_template": ESSAY_SELF_DISCOVER_PROMPT_TEMPLATE,
+            "format_reasoning_prompt_func": format_self_discover_prompt
+        }
     }
 }
 
@@ -74,19 +87,8 @@ def _run_model_evaluations(
     strategy_name_for_file = strategy_key.replace(" ", "_").lower()
     ui_utils.print_info(f"Preparing for strategy: {chosen_strategy['name']}")
 
-    relevant_model_configs_source = []
-    if "cot" in strategy_key.lower(): 
-        print(f"Using CoT-specific model configurations for strategy '{chosen_strategy['name']}'.")
-        logger.info(f"Using CoT-specific model configurations from src.configs.cot_config")
-        relevant_model_configs_source = configs.COT_CONFIGS
-    elif strategy_key == "self_discover":
-        print(f"Using Self-Discover-specific model configurations for strategy '{chosen_strategy['name']}'.")
-        logger.info(f"Using Self-Discover model configurations from src.configs.self_discover_config")
-        relevant_model_configs_source = configs.SELF_DISCOVER_CONFIGS
-    else:
-        print(f"Using default model configurations for strategy '{chosen_strategy['name']}'.")
-        logger.info(f"Using default model configurations from src.configs.default_config")
-        relevant_model_configs_source = configs.DEFAULT_CONFIGS
+    relevant_model_configs_source = configs.DEFAULT_CONFIGS
+    logger.info(f"Using default model configurations from src.configs.default_config for strategy '{chosen_strategy['name']}'.")
 
     active_model_configs = []
     if not selected_model_ids or "__ALL__" in selected_model_ids:
@@ -97,7 +99,7 @@ def _run_model_evaluations(
     else:
         filtered_configs = []
         is_cot_strategy = "cot" in strategy_key.lower()
-        is_self_discover_strategy = strategy_key == "self_discover"
+        is_self_discover_strategy = strategy_key == "self_discover_essay"
         for m in relevant_model_configs_source:
             config_id = m.get('config_id', m.get('model_id'))
             base_model_id = config_id 
@@ -123,7 +125,7 @@ def _run_model_evaluations(
         
         base_model_id_for_summary = config_id_loop
         is_cot_strategy = "cot" in strategy_key.lower()
-        is_self_discover_strategy = strategy_key == "self_discover"
+        is_self_discover_strategy = strategy_key == "self_discover_essay"
         if is_cot_strategy and config_id_loop.endswith('-cot'):
              base_model_id_for_summary = config_id_loop[:-len('-cot')]
         elif is_self_discover_strategy and config_id_loop.endswith('-self-discover'):
@@ -191,18 +193,81 @@ def _run_model_evaluations(
             print(f"\nProcessing {len(data_for_this_run)} questions with {config_id_loop} using {chosen_strategy['name']}...")
             processing_animation = ui_utils.LoadingAnimation(message=f"Processing with {config_id_loop} ({chosen_strategy['name']})")
             processing_animation.start()
-            llm_run_results_data = strategy_func(data_for_this_run, model_config_item, **strategy_params)
+            llm_run_results_data = strategy_func(
+                data_for_this_run, 
+                model_config_item, 
+                processing_animation=processing_animation,
+                current_model_config_id=config_id_loop,
+                **strategy_params
+            )
             run_end_time = time.time()
             total_run_time_seconds = run_end_time - run_start_time
             processing_animation.stop()
             ui_utils.print_success(f"Completed processing {len(data_for_this_run)} questions with {config_id_loop} ({chosen_strategy['name']})")
-
-            
+            combined_metrics = {"total_run_time_s": total_run_time_seconds}
             resource_usage_metrics = {}
-            if llm_run_results_data:
-                resource_usage_metrics = resource_eval.calculate_resource_usage(llm_run_results_data, model_config_item)
+            cost_metrics = {}
+            evaluation_metrics_summary = {}
+            evaluated_individual_results = []
+            if llm_run_results_data and "results" in llm_run_results_data and llm_run_results_data["results"]:
+                resource_usage_metrics = resource_eval.calculate_resource_usage(
+                    llm_run_results_data["results"], 
+                    model_config_item
+                )
+                combined_metrics.update(resource_usage_metrics)                
+                cost_metrics = cost_evaluation.calculate_total_cost_from_aggregated_tokens(
+                    total_input_tokens=resource_usage_metrics.get('total_input_tokens'),
+                    total_output_tokens=resource_usage_metrics.get('total_output_tokens'),
+                    model_id_for_pricing=model_config_item.get('model_id', config_id_loop), 
+                    model_type_for_pricing=model_config_item.get('type')
+                )
+                combined_metrics.update(cost_metrics)
+                logger.info(f"Evaluating results for {run_identifier_log}...")
+                evaluated_individual_results = essay_evaluation.evaluate_essay_answers(
+                    results_data=llm_run_results_data["results"], 
+                    grading_model_config=model_config_item 
+                )
+                ui_utils.print_success(f"Essay evaluation complete for {run_identifier_log}")
+
+                combined_metrics["detailed_results"] = evaluated_individual_results
+                if evaluated_individual_results:
+                    cosine_similarities = [r['cosine_similarity'] for r in evaluated_individual_results if r.get('cosine_similarity') is not None]
+                    self_grade_scores = [r['self_grade_score'] for r in evaluated_individual_results if r.get('self_grade_score') is not None]
+                    
+                    rouge_l_p = [r['rouge_l_precision'] for r in evaluated_individual_results if r.get('rouge_l_precision') is not None]
+                    rouge_l_r = [r['rouge_l_recall'] for r in evaluated_individual_results if r.get('rouge_l_recall') is not None]
+                    rouge_l_f1 = [r['rouge_l_f1measure'] for r in evaluated_individual_results if r.get('rouge_l_f1measure') is not None]
+
+                    evaluation_metrics_summary = {
+                        "avg_cosine_similarity": np.mean(cosine_similarities) if cosine_similarities else None,
+                        "avg_self_grade_score": np.mean(self_grade_scores) if self_grade_scores else None,
+                        "avg_rouge_l_precision": np.mean(rouge_l_p) if rouge_l_p else None,
+                        "avg_rouge_l_recall": np.mean(rouge_l_r) if rouge_l_r else None,
+                        "avg_rouge_l_f1measure": np.mean(rouge_l_f1) if rouge_l_f1 else None,
+                    }
+                    combined_metrics.update(evaluation_metrics_summary)
+                
+                num_processed = len(llm_run_results_data["results"])
             else: 
-                resource_usage_metrics = resource_eval.calculate_resource_usage([], model_config_item)
+                logger.warning(f"No valid results found in llm_run_results_data for {run_identifier_log} to evaluate.")
+                num_processed = 0
+                
+                combined_metrics.update({
+                    "avg_cosine_similarity": None, "avg_self_grade_score": None,
+                    "avg_rouge_l_precision": None, "avg_rouge_l_recall": None, "avg_rouge_l_f1measure": None,
+                    "detailed_results": [] 
+                })
+
+            combined_metrics["num_processed"] = num_processed
+            
+            results_file_name = config.RESULTS_DIR / f"evaluated_results_{run_identifier_log}.json"
+            try:
+                with open(results_file_name, 'w', encoding='utf-8') as f:
+                    
+                    json.dump(evaluated_individual_results, f, indent=4, ensure_ascii=False)
+                logger.info(f"Saved evaluated detailed results for {run_identifier_log} to {results_file_name}")
+            except Exception as e:
+                logger.error(f"Error saving detailed results for {run_identifier_log} to {results_file_name}: {e}", exc_info=True)
 
             model_response_filename = config.RESULTS_DIR / f"response_data_{run_identifier_log}.json"
             try:
@@ -214,42 +279,17 @@ def _run_model_evaluations(
                 logger.error(f"Failed to save LLM results for {run_identifier_log} to {model_response_filename}: {e_save}", exc_info=True)
                 ui_utils.print_error(f"Failed to save results for {run_identifier_log}.")
 
-            if llm_run_results_data:
-                logger.info(f"Performing final evaluation on {run_identifier_log} results...")
-                print(f"Evaluating results for {run_identifier_log}...")
-                eval_loading = ui_utils.LoadingAnimation(message=f"Evaluating {run_identifier_log} results")
-                eval_loading.start()
-                classification_metrics = classification_eval.evaluate_classification(llm_run_results_data)
-                eval_loading.stop()
+            if base_model_id_for_summary not in all_model_runs_summary:
+                all_model_runs_summary[base_model_id_for_summary] = {}
 
-                individual_results = {
-                    **classification_metrics,
-                    **resource_usage_metrics,
-                    "total_run_time_s": total_run_time_seconds, 
-                    "num_processed": len(llm_run_results_data),
-                    "results_file": str(model_response_filename),
-                    "config_id_used": config_id_loop 
-                }
+            all_model_runs_summary[base_model_id_for_summary][chosen_strategy['name']] = combined_metrics
 
-                if base_model_id_for_summary not in all_model_runs_summary:
-                    all_model_runs_summary[base_model_id_for_summary] = {}
-
-                all_model_runs_summary[base_model_id_for_summary][chosen_strategy['name']] = individual_results
-
-                accuracy = classification_metrics.get('accuracy', 0.0)
-                logger.info(f"Evaluation summary for {run_identifier_log}: Accuracy: {accuracy:.4f}")
-                ui_utils.print_success(f"Evaluation complete for {run_identifier_log}: Accuracy: {accuracy:.4f}")
-            else:
-                logger.warning(f"No results generated by {run_identifier_log}. Skipping evaluation.")
-                
-                if base_model_id_for_summary not in all_model_runs_summary:
-                    all_model_runs_summary[base_model_id_for_summary] = {}
-                all_model_runs_summary[base_model_id_for_summary][chosen_strategy['name']] = {
-                    "error": "No results generated",
-                    "num_processed": 0,
-                    "total_run_time_s": total_run_time_seconds,
-                    "config_id_used": config_id_loop
-                }
+            avg_cosine_sim = combined_metrics.get('avg_cosine_similarity')
+            avg_cosine_sim_str = f"{avg_cosine_sim:.4f}" if avg_cosine_sim is not None else "N/A"
+            avg_self_grade = combined_metrics.get('avg_self_grade_score')
+            avg_self_grade_str = f"{avg_self_grade:.2f}" if avg_self_grade is not None else "N/A"
+            logger.info(f"Essay evaluation summary for {run_identifier_log}: Avg Cosine Sim: {avg_cosine_sim_str}, Avg Self-Grade: {avg_self_grade_str}")
+            ui_utils.print_success(f"Essay evaluation complete for {run_identifier_log}")
 
         except Exception as model_proc_err:
             run_end_time = time.time()
@@ -313,104 +353,86 @@ def main():
     all_model_runs_summary = {}
     logger.info("Determining evaluation run type...")
 
-    run_mode = questionary.select(
-        "Select run mode:",
-        choices=[
-            {"name": "Run Full Evaluation (All Models, Default + CoT SC N=3/5 + Self-Discover Strategies)", "value": "full"},
-            {"name": "Custom Run (Select Models and Single Strategy)", "value": "custom"},
-        ]
+    
+    print("\nPreparing available LLM models...")
+    model_loading_anim = ui_utils.LoadingAnimation(message="Loading model configurations")
+    model_loading_anim.start()
+    unique_model_configs_for_listing = configs.DEFAULT_CONFIGS
+
+    model_choices = [
+        {
+            "name": f"{m.get('config_id', m.get('model_id'))} ({m.get('type')})",
+            "value": m.get('config_id', m.get('model_id'))
+        }
+        for m in unique_model_configs_for_listing
+    ]
+    model_choices.insert(0, {"name": "[Run All Available Models]", "value": "__ALL__"})
+    model_loading_anim.stop()
+    ui_utils.print_info(f"Found {len(unique_model_configs_for_listing)} unique model configurations for selection.")
+
+    print("\nPlease select which LLM models to run:")
+    selected_model_ids_for_run = questionary.checkbox(
+        "Select models (space to select, arrows to move, enter to confirm):",
+        choices=model_choices,
+        validate=lambda a: True if a else "Select at least one model."
     ).ask()
 
-    if not run_mode:
-        ui_utils.print_warning("No run mode selected. Exiting.")
+    if not selected_model_ids_for_run:
+        ui_utils.print_warning("No models selected. Exiting.")
+        return
+    
+    if "__ALL__" in selected_model_ids_for_run:
+        selected_model_ids_for_run = ["__ALL__"] 
+        logger.info("User selected to run ALL available models.")
+        print("\nUser selected to run ALL available models.")
+    else:
+        logger.info(f"User selected models: {selected_model_ids_for_run}")
+        print(f"\nUser selected models: {', '.join(selected_model_ids_for_run)}")
+
+    strategy_choices = [
+        {"name": details["name"], "value": strategy_key}
+        for strategy_key, details in AVAILABLE_STRATEGIES.items()
+    ]
+    strategy_choices.insert(0, {"name": "[Run All Available Strategies]", "value": "__ALL_STRATEGIES__"})
+
+    print("\nPlease select which essay generation strategies to run:")
+    selected_strategy_keys = questionary.checkbox(
+        "Select strategies (space to select, arrows to move, enter to confirm):",
+        choices=strategy_choices,
+        validate=lambda a: True if a else "Select at least one strategy."
+    ).ask()
+
+    if not selected_strategy_keys:
+        ui_utils.print_warning("No strategies selected. Exiting.")
         return
 
-    if run_mode == "full":
-        logger.info("Full evaluation mode selected.")
-        print("\nRunning Full Evaluation...")
-        
-        full_eval_strategies = [
-            "default", 
-            "self_consistency_cot_n3", 
-            "self_consistency_cot_n5",
-            "self_discover"
-        ]
-        
-        for strategy_key_full in full_eval_strategies:
-            print(f"\n--- Starting Full Eval: Strategy '{AVAILABLE_STRATEGIES[strategy_key_full]['name']}' ---")
-            
-            _run_model_evaluations(
-                processed_data=processed_data,
-                selected_model_ids=None, 
-                strategy_key=strategy_key_full,
-                all_model_runs_summary=all_model_runs_summary 
-            )
-            print(f"--- Completed Full Eval: Strategy '{AVAILABLE_STRATEGIES[strategy_key_full]['name']}' ---")
+    strategies_to_run_final = []
+    if "__ALL_STRATEGIES__" in selected_strategy_keys:
+        strategies_to_run_final = list(AVAILABLE_STRATEGIES.keys())
+        logger.info("User selected to run ALL available strategies.")
+        print("\nUser selected to run ALL available strategies.")
+    else:
+        strategies_to_run_final = selected_strategy_keys
+        logger.info(f"User selected strategies: {strategies_to_run_final}")
+        print(f"\nUser selected strategies: {[AVAILABLE_STRATEGIES[s]['name'] for s in strategies_to_run_final]}")
 
-    elif run_mode == "custom":
-        logger.info("Custom run mode selected.")
-        print("\nStarting Custom Run Configuration...")
-        
-        print("\nPreparing available LLM models...")
-        model_loading_anim = ui_utils.LoadingAnimation(message="Loading model configurations") 
-        model_loading_anim.start()
 
-        
-        
-        unique_model_configs_for_listing = configs.DEFAULT_CONFIGS 
-        
-        model_choices = [
-            {
-                "name": f"{m.get('config_id', m.get('model_id'))} ({m.get('type')})", 
-                "value": m.get('config_id', m.get('model_id')) 
-            }
-            for m in unique_model_configs_for_listing 
-        ]
-        model_choices.insert(0, {"name": "[Run All Available Models]", "value": "__ALL__"})
-        model_loading_anim.stop()
-        ui_utils.print_info(f"Found {len(unique_model_configs_for_listing)} unique model configurations for selection.")
+    for strategy_key in strategies_to_run_final:
+        if strategy_key not in AVAILABLE_STRATEGIES:
+            logger.warning(f"Strategy key '{strategy_key}' selected but not found in AVAILABLE_STRATEGIES. Skipping.")
+            ui_utils.print_warning(f"Strategy '{strategy_key}' not recognized. Skipping.")
+            continue
 
-        print("\nPlease select which LLM models to run:")
-        selected_model_ids = questionary.checkbox(
-            "Select models (space to select, arrows to move, enter to confirm):",
-            choices=model_choices,
-            validate=lambda a: True if a else "Select at least one model."
-        ).ask()
-        if not selected_model_ids:
-            ui_utils.print_warning("No models selected. Exiting.")
-            return
-        strategy_choices = [
-            {"name": details["name"], "value": key}
-            for key, details in AVAILABLE_STRATEGIES.items()
-        ] 
-
-        print("\nPlease select which prompting strategies to use:")
-        selected_strategy_keys = questionary.checkbox(
-            "Select prompting strategies (space to select, arrows to move, enter to confirm):",
-            choices=strategy_choices,
-            validate=lambda a: True if a else "Select at least one strategy."
-        ).ask()
-
-        if not selected_strategy_keys:
-            ui_utils.print_warning("No prompting strategies selected. Exiting.")
-            return
+        print(f"\n--- Starting Full Eval: Strategy '{AVAILABLE_STRATEGIES[strategy_key]['name']}' ---")
         
-        if selected_model_ids and selected_strategy_keys:
-             for selected_strategy_key in selected_strategy_keys:
-                 print(f"\n--- Starting Custom Run: Strategy '{AVAILABLE_STRATEGIES[selected_strategy_key]['name']}' ---")
-                 _run_model_evaluations(
-                     processed_data=processed_data,
-                     selected_model_ids=selected_model_ids, 
-                     strategy_key=selected_strategy_key,
-                     all_model_runs_summary=all_model_runs_summary 
-                 )
-                 print(f"--- Completed Custom Run: Strategy '{AVAILABLE_STRATEGIES[selected_strategy_key]['name']}' ---")
-        else:
-            
-             logger.warning("Skipping custom run execution due to missing selections.")
-             ui_utils.print_warning("Skipping custom run execution due to missing selections.")
+        _run_model_evaluations(
+            processed_data=processed_data,
+            selected_model_ids=selected_model_ids_for_run, 
+            strategy_key=strategy_key,
+            all_model_runs_summary=all_model_runs_summary 
+        )
+        print(f"--- Completed Full Eval: Strategy '{AVAILABLE_STRATEGIES[strategy_key]['name']}' ---")
 
-    
     if all_model_runs_summary:
         logger.info("\nGenerating final summary and charts...")
         print("\nGenerating final summary and charts...")
@@ -429,12 +451,12 @@ def main():
         summary_loading = ui_utils.LoadingAnimation(message="Preparing results summary")
         summary_loading.start()
         
-        header = "| {:<45} | {:<25} | {:>8} | {:>12} | {:>15} | {:>19} | {:>18} | {:>15} |".format(
-            "Model", "Strategy", "Accuracy", "Avg Time/Q (s)", "Total Time (s)", "Total Output Tokens", "Avg Ans Len", "Total Cost ($)"
+        header = "| {:<45} | {:<25} | {:>14} | {:>14} | {:>14} | {:>14} | {:>14} | {:>12} | {:>15} | {:>19} | {:>18} | {:>15} |".format(
+            "Model", "Strategy", "Avg Cosine Sim", "Avg Self-Grade", "Avg ROUGE-L P", "Avg ROUGE-L R", "Avg ROUGE-L F1", "Avg Time/Q (s)", "Total Time (s)", "Total Output Tokens", "Avg Ans Len", "Total Cost ($)"
         )
         logger.info(header)
         
-        separator = "|" + "-"*47 + "|" + "-"*27 + "|" + "-"*10 + "|" + "-"*14 + "|" + "-"*17 + "|" + "-"*21 + "|" + "-"*20 + "|" + "-"*17 + "|"
+        separator = "|" + "-"*47 + "|" + "-"*27 + "|" + "-"*16 + "|" + "-"*16 + "|" + "-"*16 + "|" + "-"*16 + "|" + "-"*16 + "|" + "-"*14 + "|" + "-"*17 + "|" + "-"*21 + "|" + "-"*20 + "|" + "-"*17 + "|"
         logger.info(separator)
 
         summary_rows_for_print = []
@@ -442,24 +464,48 @@ def main():
             for strategy, data in strategy_data.items():
                 model_disp = model_id
                 strategy_disp = strategy
-                if "error" in data:    
-                    row_str = "| {:<45} | {:<25} | {:^8} | {:^12} | {:^15} | {:^19} | {:^18} | {:^15} |".format(
-                        model_disp, strategy_disp, "FAILED", f"({data.get('error', 'Unknown')})", "---", "---", "---", "---" 
+                if "error" in data:
+                    error_msg_val = data.get('error', 'Unknown')
+                    error_msg_str = f"({error_msg_val})"
+                    if len(error_msg_str) > 14: 
+                        error_msg_str = error_msg_str[:11] + "..)"
+
+                    row_str = "| {:<45} | {:<25} | {:^14} | {:^14} | {:^14} | {:^14} | {:^14} | {:^12} | {:^15} | {:^19} | {:^18} | {:^15} |".format(
+                        model_disp, strategy_disp, "FAILED", error_msg_str, "---", "---", "---", "---", "---", "---", "---", "---" 
                     )
                 else:          
                     total_time_s = data.get('total_run_time_s')
                     total_time_str = f"{total_time_s:.2f}" if total_time_s is not None else "N/A"
-                    time_s = data.get('average_latency_ms')
-                    time_str = f"{time_s:.2f}" if time_s is not None else "N/A"
+                    
+                    time_val_ms = data.get('average_latency_ms')
+                    time_q_str = f"{(time_val_ms / 1000):.2f}" if time_val_ms is not None else "N/A"
+                    
                     tokens = data.get('total_output_tokens')
                     token_str = f"{tokens:.0f}" if tokens is not None else "N/A"
+                    
                     ans_len = data.get('avg_answer_length')
                     ans_len_str = f"{ans_len:.1f}" if ans_len is not None else "N/A"
-                    acc = data.get('accuracy', 0.0)
+                    
+                    avg_cosine_sim = data.get('avg_cosine_similarity')
+                    avg_cosine_sim_str = f"{avg_cosine_sim:.4f}" if avg_cosine_sim is not None else "N/A"
+                    
+                    avg_self_grade = data.get('avg_self_grade_score')
+                    avg_self_grade_str = f"{avg_self_grade:.2f}" if avg_self_grade is not None else "N/A"
+                    
+                    avg_rouge_p = data.get('avg_rouge_l_precision')
+                    avg_rouge_p_str = f"{avg_rouge_p:.4f}" if avg_rouge_p is not None else "N/A"
+                    
+                    avg_rouge_r = data.get('avg_rouge_l_recall')
+                    avg_rouge_r_str = f"{avg_rouge_r:.4f}" if avg_rouge_r is not None else "N/A"
+                    
+                    avg_rouge_f1 = data.get('avg_rouge_l_f1measure')
+                    avg_rouge_f1_str = f"{avg_rouge_f1:.4f}" if avg_rouge_f1 is not None else "N/A"
+                    
                     cost = data.get('total_cost')
                     cost_str = f"${cost:.4f}" if cost is not None and cost > 0 else ("$0.0000" if cost == 0 else "N/A")
-                    row_str = "| {:<45} | {:<25} | {:>8.4f} | {:>12} | {:>15} | {:>19} | {:>18} | {:>15} |".format(
-                        model_disp, strategy_disp, acc, time_str, total_time_str, token_str, ans_len_str, cost_str
+                    
+                    row_str = "| {:<45} | {:<25} | {:>14} | {:>14} | {:>14} | {:>14} | {:>14} | {:>12} | {:>15} | {:>19} | {:>18} | {:>15} |".format(
+                        model_disp, strategy_disp, avg_cosine_sim_str, avg_self_grade_str, avg_rouge_p_str, avg_rouge_r_str, avg_rouge_f1_str, time_q_str, total_time_str, token_str, ans_len_str, cost_str
                     )
                 logger.info(row_str)
                 summary_rows_for_print.append(row_str)

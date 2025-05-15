@@ -38,17 +38,36 @@ def calculate_resource_usage(results_data: list[dict], model_config_info: Option
             "total_cost": 0.0
         }
     
-    valid_times = [r.get('response_time') for r in results_data if r.get('response_time') is not None]
+    valid_times = [
+        r.get('response_time') for r in results_data 
+        if isinstance(r, dict) and r.get('response_time') is not None
+    ]
     avg_time_per_question_sec = np.mean(valid_times) if valid_times else None
     average_latency_ms = avg_time_per_question_sec * 1000 if avg_time_per_question_sec is not None else None
-    valid_in_tokens = [r.get('input_tokens') for r in results_data if r.get('input_tokens') is not None]
+    
+    valid_in_tokens = [
+        r.get('input_tokens') for r in results_data 
+        if isinstance(r, dict) and r.get('input_tokens') is not None
+    ]
     total_in_tokens = sum(valid_in_tokens) if valid_in_tokens else 0
-    valid_out_tokens = [r.get('output_tokens') for r in results_data if r.get('output_tokens') is not None]
+    
+    valid_out_tokens = [
+        r.get('output_tokens') for r in results_data 
+        if isinstance(r, dict) and r.get('output_tokens') is not None
+    ]
     total_out_tokens = sum(valid_out_tokens) if valid_out_tokens else 0
+    
     total_tokens = total_in_tokens + total_out_tokens
-    num_results_for_len = len(results_data)
-    avg_answer_len = np.mean([r.get('answer_length', 0) for r in results_data]) if num_results_for_len > 0 else 0.0
-    cost_dict = cost_evaluation.calculate_model_cost(results_data, model_config_info)
+    
+    answer_lengths = [
+        r.get('answer_length', 0) for r in results_data 
+        if isinstance(r, dict) 
+    ]
+    num_results_for_len = len(answer_lengths)
+    avg_answer_len = np.mean(answer_lengths) if num_results_for_len > 0 else 0.0
+    
+    valid_results_for_cost = [r for r in results_data if isinstance(r, dict)]
+    cost_dict = cost_evaluation.calculate_model_cost(valid_results_for_cost, model_config_info)
 
     resource_metrics = {
         "average_latency_ms": average_latency_ms,
