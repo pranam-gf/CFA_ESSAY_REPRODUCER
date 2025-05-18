@@ -41,16 +41,24 @@ def calculate_model_cost(results_data: List[Dict[str, Any]], model_config_item: 
     pricing = None
     price_per_input_token = 0.0
     price_per_output_token = 0.0
+    model_parameters = model_config_item.get("parameters", {})
 
     pricing = get_pricing(model_type, model_id)
 
     if pricing:
+        price_per_input_token = pricing.get("prompt_tokens_cost_per_million", 0.0) / 1_000_000
+        if model_type == "gemini" and model_parameters.get("thinking_budget", 0) > 0 and "completion_tokens_cost_per_million_thinking" in pricing:
+            price_per_output_token = pricing.get("completion_tokens_cost_per_million_thinking", 0.0) / 1_000_000
+            logger.info(f"Using thinking-specific output token pricing for Gemini model {model_id}.")
+        else:
+            price_per_output_token = pricing.get("completion_tokens_cost_per_million", 0.0) / 1_000_000
+        
         if model_type == "openai":
             price_per_input_token = pricing.get("input", 0.0)
             price_per_output_token = pricing.get("output", 0.0)
-        else:
-            price_per_input_token = pricing.get("prompt_tokens_cost_per_million", 0.0) / 1_000_000
-            price_per_output_token = pricing.get("completion_tokens_cost_per_million", 0.0) / 1_000_000
+            if model_parameters.get("thinking_budget", 0) > 0:
+                 logger.info(f"OpenAI model {model_id} used thinking_budget, but no separate pricing. Standard output cost applies.")
+
     else:
         logger.warning(f"Skipping cost calculation for run using model ID '{model_id}' (type: {model_type}) as pricing is not defined.")
         return {"total_cost": 0.0}
@@ -82,7 +90,8 @@ def calculate_total_cost_from_aggregated_tokens(
     total_input_tokens: Optional[int],
     total_output_tokens: Optional[int],
     model_id_for_pricing: str,
-    model_type_for_pricing: str
+    model_type_for_pricing: str,
+    model_parameters_for_pricing: Optional[Dict[str, Any]] = None
 ) -> Dict[str, float]:
     """
     Calculates the estimated total cost based on aggregated input and output token counts.
@@ -92,6 +101,7 @@ def calculate_total_cost_from_aggregated_tokens(
         total_output_tokens: Total number of output tokens for the run.
         model_id_for_pricing: The specific model ID to use for fetching pricing.
         model_type_for_pricing: The type of the model (e.g., 'openai', 'anthropic').
+        model_parameters_for_pricing: Optional model parameters for pricing calculation.
 
     Returns:
         A dictionary containing the total estimated cost, e.g., {'total_cost': 0.123}.
@@ -104,9 +114,17 @@ def calculate_total_cost_from_aggregated_tokens(
     pricing = get_pricing(model_type_for_pricing, model_id_for_pricing)
     price_per_input_token = 0.0
     price_per_output_token = 0.0
+    parameters = model_parameters_for_pricing if model_parameters_for_pricing is not None else {}
 
     if pricing:
-        if model_type_for_pricing == "openai": 
+        price_per_input_token = pricing.get("prompt_tokens_cost_per_million", 0.0) / 1_000_000
+        if model_type_for_pricing == "gemini" and parameters.get("thinking_budget", 0) > 0 and "completion_tokens_cost_per_million_thinking" in pricing:
+            price_per_output_token = pricing.get("completion_tokens_cost_per_million_thinking", 0.0) / 1_000_000
+            logger.info(f"Using thinking-specific output token pricing for Gemini model {model_id_for_pricing} (Aggregated).")
+        else:
+            price_per_output_token = pricing.get("completion_tokens_cost_per_million", 0.0) / 1_000_000
+
+        if model_type_for_pricing == "openai":
             price_per_input_token = pricing.get("input", 0.0)
             price_per_output_token = pricing.get("output", 0.0)
         else: 

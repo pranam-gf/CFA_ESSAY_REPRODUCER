@@ -151,15 +151,14 @@ ALL_MODEL_CONFIGS = [
             "max_tokens": 8192
         }
     },
-    
     {
     "config_id": "gemini-2.5-pro",
     "type": "gemini",
-    "model_id": "gemini-2.5-pro-exp-03-25",
+    "model_id": "gemini-2.5-pro-preview-05-06",
     "parameters": {
         "top_p": 0.95,
         "top_k": 64,
-        "max_output_tokens": 65536
+        "thinking_budget": 24576,
     }
     },
     {
@@ -169,7 +168,7 @@ ALL_MODEL_CONFIGS = [
     "parameters": {
         "top_p": 0.95,
         "top_k": 64,
-        "max_output_tokens": 65536
+        "thinking_budget": 24576,
     }
     },
     {

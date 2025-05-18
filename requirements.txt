@@ -5,7 +5,7 @@ reportlab
 scikit-learn
 numpy
 boto3
-google-generativeai
+google-genai>=1.10.0
 matplotlib
 seaborn
 kaleido
@@ -21,5 +21,4 @@ tzdata==2025.2
 uritemplate==4.1.1
 urllib3==2.4.0
 wcwidth==0.2.13
-mistralai==0.1.1
 rouge-score==0.1.2

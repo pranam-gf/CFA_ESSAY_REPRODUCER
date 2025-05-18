@@ -7,7 +7,8 @@ import logging
 import re
 import boto3
 from openai import OpenAI, APIError, RateLimitError, APIConnectionError
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types
 from writerai import Writer
 from groq import Groq
 import anthropic
@@ -210,13 +211,8 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 return {"error_message": "Missing Anthropic API key", "response_time": 0}
             
             anthropic_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-            
             anthropic_params = parameters.copy()
-            
-            
             anthropic_params.pop('response_format', None) 
-            
-            
             
             if 'max_tokens' not in anthropic_params:
                 anthropic_params['max_tokens'] = 4096 
@@ -348,89 +344,226 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
             if not config.GEMINI_API_KEY:
                 logger.error(f"Missing Gemini API key for model {config_id}.")
                 return {"error_message": "Missing Gemini API key", "response_time": 0}
-            genai.configure(api_key=config.GEMINI_API_KEY)
-            gemini_model_instance = genai.GenerativeModel(model_id)
             
-            gemini_params = parameters.copy()
-            gen_config_params = {k: v for k,v in gemini_params.items() if k in ["temperature", "top_p", "top_k", "max_output_tokens"]}
-            
-            thinking_budget_value = gemini_params.get("thinking_budget")
-            
-            final_generation_config = genai.types.GenerationConfig(**gen_config_params)
-            
-            if thinking_budget_value is not None:
-                thinking_config = genai.types.ThinkingConfig(thinking_budget=thinking_budget_value)
-                final_generation_config = genai.types.GenerateContentConfig(
-                    candidate_count=final_generation_config.candidate_count,
-                    stop_sequences=final_generation_config.stop_sequences,
-                    max_output_tokens=final_generation_config.max_output_tokens,
-                    temperature=final_generation_config.temperature,
-                    top_p=final_generation_config.top_p,
-                    top_k=final_generation_config.top_k,
-                    thinking_config=thinking_config
-                )
+            gemini_params_from_config = parameters.copy()
+            effective_model_id = model_id if model_id.startswith("models/") else f"models/{model_id}"
+            logger.info(f"Using effective model_id for Gemini: {effective_model_id}")
 
-            logger.debug(f"Gemini prompt for {config_id}:\n{prompt[:200]}...")
-            api_response = gemini_model_instance.generate_content(
-                prompt,
-                generation_config=final_generation_config
-            )
+            try:
+                
+                logger.info(f"Attempting Gemini API call for {config_id} using genai.Client() pattern.")
+                gemini_client = genai.Client(api_key=config.GEMINI_API_KEY)
+
+                gen_content_config_args = {
+                    k: v for k, v in gemini_params_from_config.items()
+                    if k in ["temperature", "top_p", "top_k", "max_output_tokens", "candidate_count", "stop_sequences", "system_instruction"] and v is not None
+                }
+        
+                if "safety_settings" in gemini_params_from_config and gemini_params_from_config["safety_settings"] is not None:
+                    logger.info(f"Gemini model {config_id} (Client API): safety_settings found in params. Note: Passing them via GenerateContentConfig is SDK version dependent.")
+                thinking_budget_value = gemini_params_from_config.get("thinking_budget")
+                final_generate_content_config_obj = None
+
+                current_gen_content_config_dict_for_builder = gen_content_config_args.copy()
+
+                if thinking_budget_value is not None:
+                    if "flash" in model_id.lower(): 
+                        try:
+                            thinking_config_obj = types.ThinkingConfig(thinking_budget=thinking_budget_value)
+                            current_gen_content_config_dict_for_builder['thinking_config'] = thinking_config_obj
+                            logger.info(f"Gemini model {config_id} (Client API): Preparing GenerateContentConfig with ThinkingConfig (budget: {thinking_budget_value}).")
+                        except AttributeError:
+                            logger.warning(
+                                f"Gemini model {config_id} (Client API): types.ThinkingConfig is not available or cannot be assigned to "
+                                f"GenerateContentConfig args in the current SDK version. 'thinking_budget' will be ignored for GenerateContentConfig."
+                            )
+                        except Exception as e_thinking_config:
+                            logger.warning(
+                                f"Gemini model {config_id} (Client API): Error setting up ThinkingConfig for GenerateContentConfig "
+                                f"(type: {type(e_thinking_config).__name__}, msg: {e_thinking_config}). 'thinking_budget' will be ignored."
+                            )
+                    else:
+                        logger.info(f"Gemini model {config_id} (Client API): 'thinking_budget' parameter is present but model_id '{model_id}' does not appear to be a 'flash' model. Ignoring 'thinking_budget'.")
+                
+                if current_gen_content_config_dict_for_builder:
+                    try:
+                        final_generate_content_config_obj = types.GenerateContentConfig(**current_gen_content_config_dict_for_builder)
+                        logger.info(f"Gemini model {config_id} (Client API): Using GenerateContentConfig with args: {current_gen_content_config_dict_for_builder}")
+                    except TypeError as te_gen_content:
+                        logger.warning(
+                            f"Gemini model {config_id} (Client API): TypeError creating GenerateContentConfig: {te_gen_content}. "
+                            f"Attempting without problematic args (e.g., thinking_config if it was the cause)."
+                        )
+                        if 'thinking_config' in current_gen_content_config_dict_for_builder: 
+                            del current_gen_content_config_dict_for_builder['thinking_config']
+                        if current_gen_content_config_dict_for_builder:
+                            final_generate_content_config_obj = types.GenerateContentConfig(**current_gen_content_config_dict_for_builder)
+                            logger.info(f"Gemini model {config_id} (Client API): Using fallback GenerateContentConfig with args: {current_gen_content_config_dict_for_builder}")
+                        else:
+                            final_generate_content_config_obj = None 
+                            logger.info(f"Gemini model {config_id} (Client API): No specific GenerateContentConfig args after fallback. Using SDK defaults.")
+                    except Exception as e_gen_content_config:
+                        logger.warning(
+                           f"Gemini model {config_id} (Client API): Unexpected error creating GenerateContentConfig (type: {type(e_gen_content_config).__name__}, msg: {e_gen_content_config}). "
+                           f"SDK will use default GenerateContentConfig."
+                       )
+                        final_generate_content_config_obj = None
+                else:
+                    logger.info(f"Gemini model {config_id} (Client API): No specific GenerateContentConfig args. Using SDK defaults.")
+                    final_generate_content_config_obj = None
+
+                
+                
+                
+                
+                api_response = gemini_client.models.generate_content(
+                    model=effective_model_id,
+                    contents=[prompt], 
+                    config=final_generate_content_config_obj
+                    
+                    
+                    
+                )
+                logger.info(f"Gemini API call for {config_id} using genai.Client() pattern succeeded.")
+
+            except (AttributeError, TypeError) as e_sdk_pattern:
+                logger.warning(f"Gemini API call for {config_id} with genai.Client() pattern failed ({type(e_sdk_pattern).__name__}: {e_sdk_pattern}). Falling back to genai.GenerativeModel() pattern.")
+                
+                
+                
+                gemini_model_instance = genai.GenerativeModel(effective_model_id) 
+
+                gen_config_args = {
+                    k: v for k, v in gemini_params_from_config.items() 
+                    if k in ["temperature", "top_p", "top_k", "max_output_tokens", "candidate_count", "stop_sequences"] and v is not None
+                }
+                
+                safety_settings_fallback = gemini_params_from_config.get("safety_settings")
+                tools_fallback = gemini_params_from_config.get("tools")
+                tool_config_fallback = gemini_params_from_config.get("tool_config")
+
+                thinking_budget_value = gemini_params_from_config.get("thinking_budget")
+                final_generation_config_obj_fallback = None
+
+                current_gen_config_dict_for_builder_fallback = gen_config_args.copy()
+                if thinking_budget_value is not None:
+                    if "flash" in model_id.lower(): 
+                        try:
+                            thinking_config_obj_fallback = types.ThinkingConfig(thinking_budget=thinking_budget_value)
+                            current_gen_config_dict_for_builder_fallback['thinking_config'] = thinking_config_obj_fallback
+                            logger.info(f"Gemini model {config_id} (Fallback): Preparing GenerationConfig with ThinkingConfig (budget: {thinking_budget_value}).")
+                        except AttributeError:
+                            logger.warning(
+                                f"Gemini model {config_id} (Fallback): types.ThinkingConfig is not available or cannot be assigned to GenerationConfig args "
+                                f"in the current SDK version for fallback. 'thinking_budget' will be ignored."
+                            )
+                        except Exception as e_thinking_config_fallback:
+                            logger.warning(
+                                f"Gemini model {config_id} (Fallback): Error setting up ThinkingConfig (type: {type(e_thinking_config_fallback).__name__}, msg: {e_thinking_config_fallback}). "
+                                f"'thinking_budget' will be ignored."
+                            )
+                    else:
+                        logger.info(f"Gemini model {config_id} (Fallback): 'thinking_budget' parameter is present but model_id '{model_id}' does not appear to be a 'flash' model. Ignoring 'thinking_budget'.")
+                
+                if current_gen_config_dict_for_builder_fallback:
+                    try:
+                        final_generation_config_obj_fallback = types.GenerationConfig(**current_gen_config_dict_for_builder_fallback)
+                        logger.info(f"Gemini model {config_id} (Fallback): Using GenerationConfig with args: {current_gen_config_dict_for_builder_fallback}")
+                    except TypeError as te_fallback:
+                        logger.warning(
+                            f"Gemini model {config_id} (Fallback): TypeError creating GenerationConfig: {te_fallback}. "
+                            f"Attempting without problematic args."
+                        )
+                        if 'thinking_config' in current_gen_config_dict_for_builder_fallback:
+                            del current_gen_config_dict_for_builder_fallback['thinking_config']
+                        if current_gen_config_dict_for_builder_fallback:
+                            final_generation_config_obj_fallback = types.GenerationConfig(**current_gen_config_dict_for_builder_fallback)
+                            logger.info(f"Gemini model {config_id} (Fallback): Using fallback GenerationConfig with args: {current_gen_config_dict_for_builder_fallback}")
+                        else:
+                            final_generation_config_obj_fallback = None
+                            logger.info(f"Gemini model {config_id} (Fallback): No specific generation config args after fallback. Using SDK defaults.")
+                    except Exception as e_gen_config_fallback:
+                        logger.warning(
+                           f"Gemini model {config_id} (Fallback): Unexpected error creating GenerationConfig (type: {type(e_gen_config_fallback).__name__}, msg: {e_gen_config_fallback}). "
+                           f"SDK will use default GenerationConfig."
+                       )
+                        final_generation_config_obj_fallback = None
+                else:
+                    logger.info(f"Gemini model {config_id} (Fallback): No specific generation config args. Using SDK defaults for GenerationConfig.")
+                    final_generation_config_obj_fallback = None
+                
+                api_response = gemini_model_instance.generate_content(
+                    contents=[prompt],
+                    generation_config=final_generation_config_obj_fallback,
+                    safety_settings=safety_settings_fallback,
+                    tools=tools_fallback,
+                    tool_config=tool_config_fallback
+                )
+                logger.info(f"Gemini API call for {config_id} using genai.GenerativeModel() fallback succeeded.")
+            
             logger.debug(f"Gemini raw api_response object for {config_id}: {api_response}")
             
-            response_text_for_error = ""
-            if hasattr(api_response, 'text') and api_response.text:
-                response_text_for_error = api_response.text.strip()
-                logger.debug(f"Extracted response via api_response.text for {config_id}")
-            elif hasattr(api_response, 'candidates') and api_response.candidates:
-                try:
-                    candidate = api_response.candidates[0]
-                    logger.debug(f"Examining candidate for {config_id}: {candidate}")
+            if hasattr(api_response, 'text'):
+                raw_text_from_api = api_response.text 
+                if raw_text_from_api is not None:
+                    response_text_for_error = raw_text_from_api.strip()
+                    logger.info(f"Extracted text for {config_id} via api_response.text. Length: {len(response_text_for_error)}. Snippet: '{response_text_for_error[:100]}...'")
+                else:
+                    response_text_for_error = ""
+                    logger.warning(f"api_response.text is None for {config_id}. Will check for blocking. Defaulting response text to empty string.")
+            else:
+                response_text_for_error = ""
+                logger.warning(f"api_response.text attribute missing for {config_id}. Defaulting response text to empty string.")
+
+            if hasattr(api_response, 'prompt_feedback') and api_response.prompt_feedback:
+                block_reason = getattr(api_response.prompt_feedback, 'block_reason', None)
+                if block_reason:
+                    safety_ratings_details_list = getattr(api_response.prompt_feedback, 'safety_ratings', [])
+                    safety_ratings_str = "; ".join([str(rating) for rating in safety_ratings_details_list])
                     
-                    if hasattr(candidate, 'content') and candidate.content:
-                        logger.debug(f"Candidate content for {config_id}: {candidate.content}")
-                        
-                        if hasattr(candidate.content, 'parts') and candidate.content.parts:
-                            logger.debug(f"Content parts for {config_id}: {candidate.content.parts}")
-                            
-                            if hasattr(candidate.content.parts[0], 'text'):
-                                response_text_for_error = candidate.content.parts[0].text.strip()
-                                logger.debug(f"Successfully extracted text from parts for {config_id}: {response_text_for_error[:50]}...")
-                            else:
-                                logger.warning(f"Gemini candidate {config_id} content part has no text attribute: {candidate.content.parts[0]}")
-                                
-                                response_text_for_error = str(candidate.content.parts[0])
-                                logger.debug(f"Using string representation instead: {response_text_for_error[:50]}...")
-                    
-                    if hasattr(candidate, 'finish_reason'):
-                         logger.info(f"Gemini candidate finish_reason for {config_id}: {candidate.finish_reason}")
-                except Exception as e_parse_candidate:
-                    logger.warning(f"Error parsing Gemini candidate for {config_id}: {e_parse_candidate}")
-                    logger.debug("Full response object structure:", exc_info=True)
+                    error_message_on_block = f"Gemini content blocked: {block_reason}. Details: {safety_ratings_str}"
+                    logger.error(f"Error for {config_id}: {error_message_on_block}")
+                    return {"error_message": error_message_on_block,
+                            "response_time": time.time() - start_time,
+                            "details": {"type": "ContentBlocked", "reason": str(block_reason), "safety_ratings": safety_ratings_str},
+                            "raw_response_text": response_text_for_error 
+                           }
             
             if not response_text_for_error:
-                
-                try:
-                    response_text_for_error = str(api_response)
-                    logger.warning(f"Using full object string representation for {config_id} as text was empty: {response_text_for_error[:100]}...")
-                except:
-                    logger.warning(f"Gemini response text is empty for {config_id} and string representation failed.")
-                
-                if hasattr(api_response, 'prompt_feedback') and api_response.prompt_feedback:
-                    block_reason = getattr(api_response.prompt_feedback, 'block_reason', None)
-                    if block_reason:
-                        logger.error(f"Gemini content blocked for {config_id}. Reason: {block_reason} - Details: {api_response.prompt_feedback.safety_ratings}")
-                        return {"error_message": f"Gemini content blocked: {block_reason}", 
-                                "response_time": time.time() - start_time,
-                                "details": api_response.prompt_feedback.safety_ratings}
+                 finish_reason_from_candidate = "Unknown"
+                 if hasattr(api_response, 'candidates') and api_response.candidates and \
+                    len(api_response.candidates) > 0 and hasattr(api_response.candidates[0], 'finish_reason'):
+                     finish_reason_from_candidate = str(api_response.candidates[0].finish_reason)
+                 logger.warning(f"Gemini response text is empty for {config_id}. Finish reason (from candidate, if available): {finish_reason_from_candidate}. This is expected if MAX_TOKENS is hit before output, or model chose to output nothing.")
 
-            logger.info(f"Gemini raw response text for {config_id}: {response_text_for_error[:200]}...")
             if hasattr(api_response, 'usage_metadata') and api_response.usage_metadata:
-                input_tokens = api_response.usage_metadata.prompt_token_count
-                output_tokens = api_response.usage_metadata.candidates_token_count
-                if output_tokens is None and hasattr(api_response.usage_metadata, 'total_token_count'): 
-                    output_tokens = api_response.usage_metadata.total_token_count - (input_tokens or 0)
+                usage_meta = api_response.usage_metadata
+                input_tokens = getattr(usage_meta, 'prompt_token_count', None)
+                
+                thoughts_tokens = getattr(usage_meta, 'thoughts_token_count', 0) or 0
+                candidates_tokens = getattr(usage_meta, 'candidates_token_count', 0) or 0
+                
+                output_tokens = thoughts_tokens + candidates_tokens
+
+                if thoughts_tokens > 0:
+                    logger.info(f"Gemini usage for {config_id}: Input={input_tokens}, Candidates={candidates_tokens}, Thoughts={thoughts_tokens}, Calculated Output (Candidates+Thoughts)={output_tokens}")
+                else:
+                    logger.info(f"Gemini usage for {config_id}: Input={input_tokens}, Candidates={candidates_tokens} (No thoughts tokens reported), Calculated Output={output_tokens}")
+
+                if output_tokens == 0 and input_tokens is not None and hasattr(usage_meta, 'total_token_count') and usage_meta.total_token_count is not None:
+                    inferred_output_tokens = usage_meta.total_token_count - input_tokens
+                    if inferred_output_tokens >= 0:
+                        output_tokens = inferred_output_tokens
+                        logger.warning(f"Gemini for {config_id}: Output tokens (candidates + thoughts) inferred from total_token_count as {output_tokens} because direct candidate/thoughts tokens were zero/missing.")
+                    else:
+                        logger.warning(f"Gemini for {config_id}: Cannot infer output tokens as total_token_count ({usage_meta.total_token_count}) < prompt_token_count ({input_tokens}).")
+                elif output_tokens == 0 and (thoughts_tokens == 0 and candidates_tokens == 0):
+                     logger.warning(f"Gemini for {config_id}: Calculated output_tokens is 0. Direct thoughts_tokens and candidates_tokens were also 0. Total_token_count fallback not applicable or also resulted in 0.")
+
             else: 
-                logger.warning(f"Gemini token count not found via usage_metadata for {config_id}. Setting to None.")
+                logger.warning(f"Gemini token count not found via usage_metadata for {config_id}. Setting input/output tokens to None.")
+                input_tokens = None
+                output_tokens = None
 
         elif model_type == "writer":
             if not config.WRITER_API_KEY:
@@ -664,7 +797,8 @@ def get_llm_response(prompt: str, model_config: dict, is_json_response_expected:
                 parsed_content_for_return = json.loads(response_text_for_error)
                 logger.info(f"Successfully parsed entire response as JSON for {config_id}.")
         except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON response for {config_id}. Raw: '{response_text_for_error[:200]}...'")
+            
+            logger.error(f"Failed to parse JSON response for {config_id}. Raw: '{response_text_for_error}'") 
             return {
                 "response_json": {"answer": "X", "explanation": "JSON parsing failed"},
                 "response_content": "X",

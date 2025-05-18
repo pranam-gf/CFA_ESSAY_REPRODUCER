@@ -219,7 +219,8 @@ def _run_model_evaluations(
                     total_input_tokens=resource_usage_metrics.get('total_input_tokens'),
                     total_output_tokens=resource_usage_metrics.get('total_output_tokens'),
                     model_id_for_pricing=model_config_item.get('model_id', config_id_loop), 
-                    model_type_for_pricing=model_config_item.get('type')
+                    model_type_for_pricing=model_config_item.get('type'),
+                    model_parameters_for_pricing=model_config_item.get('parameters', {})
                 )
                 combined_metrics.update(cost_metrics)
                 logger.info(f"Evaluating results for {run_identifier_log}...")

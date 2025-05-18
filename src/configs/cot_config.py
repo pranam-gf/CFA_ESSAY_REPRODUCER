@@ -6,7 +6,7 @@ ALL_MODEL_CONFIGS_COT = [
     {
         "config_id": "gemini-2.5-pro-cot",
         "type": "gemini",
-        "model_id": "gemini-2.5-pro-exp-03-25",
+        "model_id": "gemini-2.5-pro-preview-05-06",
         "prompt_strategy_type": "COHERENT_CFA_COT", 
         "parameters": {
             "temperature": 0.5, 
@@ -25,7 +25,7 @@ ALL_MODEL_CONFIGS_COT = [
             "top_p": 0.95,
             "top_k": 64,
             "max_tokens": 65536,
-            "thinking_budget": 4096 #24576
+            "thinking_budget": 24576
         }
     },
     {

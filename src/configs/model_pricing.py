@@ -71,11 +71,11 @@ ANTHROPIC_PRICING = {
 }
 
 GEMINI_PRICING = {
-    "gemini-2.5-pro-exp-03-25": {
+    "gemini-2.5-pro-preview-05-06": {
         "prompt_tokens_cost_per_million": 1.25,
         "completion_tokens_cost_per_million": 10.00,
     },
-    "gemini-2.5-flash-preview-04-17": {
+    "models/gemini-2.5-flash-preview-04-17": {
         "prompt_tokens_cost_per_million": 0.15,
         "completion_tokens_cost_per_million": 0.60,
         "completion_tokens_cost_per_million_thinking": 3.50
