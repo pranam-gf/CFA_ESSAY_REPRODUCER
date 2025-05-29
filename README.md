@@ -69,7 +69,8 @@ The project is organized to promote modularity and ease of extension:
 ```
 CFA_MCQ_REPRODUCER/  # Project Root (Note: actual name might vary, e.g., CFA_ESSAY_REPRODUCER)
 ├── data/
-│   └── updated_data.json      # Input essay question data (vignette, question, topic, explanation).
+│   ├── updated_data.json      # Input essay question data (vignette, question, topic, explanation).
+│   └── answer_grading_details.json # CFA Level III grading criteria for re-grading utility.
 ├── img/
 │   └── *.png                  # Images for README.
 ├── results/
@@ -93,7 +94,8 @@ CFA_MCQ_REPRODUCER/  # Project Root (Note: actual name might vary, e.g., CFA_ESS
 │   │   ├── __init__.py
 │   │   ├── cot.py               # Chain-of-Thought prompts for essays.
 │   │   ├── self_discover.py     # Self-Discover prompts for essays.
-│   │   └── default.py           # Basic essay prompts.
+│   │   ├── default.py           # Basic essay prompts.
+│   │   └── grading_prompts.py   # CFA Level III grading prompts for re-grading.
 │   ├── strategies/            # Different prompting strategy implementations.
 │   │   ├── __init__.py
 │   │   ├── default.py
@@ -103,7 +105,8 @@ CFA_MCQ_REPRODUCER/  # Project Root (Note: actual name might vary, e.g., CFA_ESS
 │   │   ├── __init__.py
 │   │   ├── ui_utils.py        # CLI animations and colored output.
 │   │   ├── prompt_utils.py    # Prompt generation and data parsing utilities.
-│   │   └── text_utils.py      # Text cleaning functions for LLM answers.
+│   │   ├── text_utils.py      # Text cleaning functions for LLM answers.
+│   │   └── regrade_with_gpt4_1.py # Unbiased re-grading utility (see below).
 │   ├── main.py                # Main script to orchestrate the pipeline.
 │   └── plotting.py            # Script to generate all evaluation plots.
 ├── .env                       # Local environment variables (API keys). Not version controlled.
@@ -173,6 +176,47 @@ The CLI provides an enhanced user experience:
 2.  **Per-Question Progress Indicators**: During LLM processing (e.g., `Processing with gpt-4o (Default Essay): [15/50] questions ⠋`).
 3.  **Colored Console Output**: For clear distinction of success (✓ green), error (✗ red), info (ℹ blue), and warning (⚠ yellow) messages.
 4.  **Formatted Results Summary**: A detailed table summarizing key metrics for each model/strategy combination at the end of the run.
+
+## Unbiased Essay Re-grading Utility
+
+### Addressing Self-Grading Bias
+
+**Critical Issue**: In the initial benchmark design, each LLM was grading its own generated essays, potentially introducing significant bias where models might systematically over-rate or under-rate their own outputs.
+
+**Solution**: The `src/utils/regrade_with_gpt4_1.py` utility addresses this bias by using **GPT-4.1 as a consistent, independent grader** across all models and strategies. This approach reproduces the unbiased evaluation methodology from the [JP Morgan CFA paper](https://aclanthology.org/2024.emnlp-industry.80.pdf) (Mahfouz et al., 2024), ensuring fair comparison across different LLMs.
+
+### Key Features:
+- **Consistent Grader**: Uses GPT-4.1 with identical grading prompts for all essays
+- **CFA Level III Grading System**: Implements proper CFA grading rubrics with detailed scoring criteria
+- **Automatic Data Matching**: Matches generated essays to grading criteria using folder + position indexing
+- **Backup & Safety**: Creates backups before modifying result files
+- **Comprehensive Logging**: Tracks score changes, processing statistics, and potential issues
+
+### Usage:
+
+```bash
+# Dry run to preview changes (recommended first)
+python -m src.utils.regrade_with_gpt4_1 --strategy default_essay --dry-run
+
+# Re-grade a specific strategy
+python -m src.utils.regrade_with_gpt4_1 --strategy self_consistency_essay_n3 --execute
+
+# Re-grade all essay strategies
+python -m src.utils.regrade_with_gpt4_1 --strategy all --execute
+```
+
+### Requirements:
+- **OpenAI API Key**: GPT-4.1 access required (set `OPENAI_API_KEY` in `.env`)
+- **Grading Data**: Requires `data/answer_grading_details.json` with CFA grading criteria
+- **Generated Results**: Works with existing `evaluated_results_*.json` files from any strategy
+
+### Output:
+- **Updated Scores**: Replaces biased self-grades with unbiased GPT-4.1 scores
+- **Audit Trail**: Adds `regrade_info` metadata to track the re-grading process
+- **Change Summary**: Detailed statistics on score improvements/declines
+- **Backup Files**: Original files preserved as `.json.backup`
+
+This utility is essential for reproducing the rigorous, unbiased evaluation standards used in academic LLM research and enables fair comparison of model capabilities across the benchmark.
 
 ## Configuration
 
