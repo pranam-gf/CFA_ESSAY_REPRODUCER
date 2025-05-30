@@ -29,9 +29,9 @@ import re
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from config import PROJECT_ROOT, OPENAI_API_KEY
-from llm_clients import get_llm_response
-from prompts.grading_prompts import get_full_cfa_level_iii_efficient_grading_prompt
+from src.config import PROJECT_ROOT, OPENAI_API_KEY
+from src.llm_clients import get_llm_response
+from src.prompts.grading_prompts import get_full_cfa_level_iii_efficient_grading_prompt
 
 logging.basicConfig(
     level=logging.INFO,

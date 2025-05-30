@@ -25,6 +25,40 @@ Generated Answer to Evaluate:
 
 Please provide your evaluation in the specified JSON format, including a 'score' (an integer from 1 to 10) and a 'justification' (a string).
 """
+CFA_LEVEL_III_EFFICIENT_GRADING_SYSTEM_PROMPT = """
+You are tasked with grading essay answers from the CFA Level 3 examination. You will be supplied with the correct answer/explanation, the grading details (where to assign marks) and the student's answer. Return ONLY a numeric value from {min_score} to {max_score} indicating the number of marks the student should receive.
+The maximum possible score for this specific question is {max_score}.
+The minimum possible score for this specific question is {min_score}.
+Here is the correct answer/explanation:
+{correct_answer}
+Here are the answer grading details:
+{answer_grading_details}
+Here is the student's answer:
+{generated_answer}
+"""
+
+def get_full_cfa_level_iii_efficient_grading_prompt(answer_grading_details: str, student_answer: str, min_score: int = 0, max_score: int = 10, correct_answer: str = "") -> str:
+    """
+    Creates a CFA Level III efficient grading prompt that returns only a numerical score.
+    
+    Args:
+        answer_grading_details: The grading criteria/rubric
+        student_answer: The answer to be graded
+        min_score: Minimum possible score (default 0)
+        max_score: Maximum possible score (default 10)
+        correct_answer: The reference/model answer (optional)
+        
+    Returns:
+        Complete prompt for the LLM grader
+    """
+    return CFA_LEVEL_III_EFFICIENT_GRADING_SYSTEM_PROMPT.format(
+        answer_grading_details=answer_grading_details,
+        generated_answer=student_answer,
+        min_score=min_score,
+        max_score=max_score,
+        correct_answer=correct_answer or "Not provided"
+    )
+
 
 def format_grading_prompt(question_text: str, reference_answer_text: str, generated_answer_text: str) -> tuple[str, str]:
     """

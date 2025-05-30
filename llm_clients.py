@@ -17,7 +17,7 @@ import writerai
 import tiktoken
 import time 
 import random
-from . import config
+from src import config
 import os
 import httpx
 
