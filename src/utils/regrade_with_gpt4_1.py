@@ -48,7 +48,7 @@ GPT4_1_CONFIG = {
     "type": "openai", 
     "model_id": "gpt-4.1-2025-04-14",
     "parameters": {
-        "temperature": 0.1,
+        "temperature": 0.0,
         "max_tokens": 10
     }
 }
@@ -140,46 +140,46 @@ class ImprovedEssayRegrader:
         
         return complete_lookup
     
-    def extract_score_from_response(self, response_text: str) -> Optional[int]:
-        """Extract numerical score from GPT-4.1 response."""
+    def extract_score_from_response(self, response_text: str, max_score: int) -> Optional[int]:
+        """Extract numerical score from GPT-4.1 response with strict validation."""
         if not response_text:
             return None
             
         response_text = response_text.strip()
         
-        numbers = re.findall(r'\b([0-9]|10)\b', response_text)
+        # Look for integers only (no decimals for strict scoring)
+        numbers = re.findall(r'\b(\d+)\b', response_text)
         if numbers:
             try:
                 score = int(numbers[0])
-                if 0 <= score <= 10:
+                if 0 <= score <= max_score:
                     return score
+                else:
+                    logger.warning(f"Score {score} outside valid range [0, {max_score}]")
             except ValueError:
                 pass
         
-        digits = re.findall(r'\d+', response_text)
-        for digit_str in digits:
-            try:
-                score = int(digit_str)
-                if 0 <= score <= 10:
-                    return score
-            except ValueError:
-                continue
-                
-        logger.warning(f"Could not extract score from response: {response_text[:200]}")
+        logger.warning(f"Could not extract valid integer score from response: {response_text[:200]}")
         return None
-
+    
     def regrade_essay_with_context(self, question_context: Dict, generated_answer: str) -> Tuple[Optional[int], Optional[str]]:
-        """Re-grade a single essay using GPT-4.1 with proper CFA Level III grading."""
+        """Re-grade a single essay using GPT-4.1 with strict CFA Level III grading."""
         try:
             grading_details_text = question_context.get('grading_details', '')
             max_score = question_context.get('max_score')
-
+            question = question_context.get('question', '')
+            vignette = question_context.get('vignette', '')
+            
             if not grading_details_text:
                 logger.warning("No grading details available for this question")
                 return None, None
             
+            if not question:
+                logger.warning("No question text available for grading context")
+                return None, None
+            
             if max_score is None:
-                logger.warning(f"Max score not found for question: {question_context.get('question')}")
+                logger.warning(f"Max score not found for question: {question[:100]}...")
                 score_match = re.search(r"(\d+)\s*points", grading_details_text, re.IGNORECASE)
                 if score_match:
                     max_score = int(score_match.group(1))
@@ -190,8 +190,15 @@ class ImprovedEssayRegrader:
 
             min_score = 0
             
+            # Get the correct answer for reference
+            correct_answer = (question_context.get('explanation', '') or 
+                            "See grading details for scoring criteria")
+            
             prompt = get_full_cfa_level_iii_efficient_grading_prompt(
+                question=question,
+                vignette=vignette,
                 answer_grading_details=grading_details_text,
+                correct_answer=correct_answer,
                 student_answer=generated_answer,
                 min_score=min_score,
                 max_score=max_score
@@ -206,9 +213,9 @@ class ImprovedEssayRegrader:
             raw_response_content = response.get('response_content')
 
             if raw_response_content:
-                score = self.extract_score_from_response(raw_response_content)
+                score = self.extract_score_from_response(raw_response_content, max_score)
                 if score is not None: 
-                    logger.debug(f"Successfully extracted score: {score}")
+                    logger.debug(f"Successfully extracted strict score: {score}")
                     return score, raw_response_content
             else:
                 logger.error(f"Invalid or empty response from GPT-4.1: {response}")
