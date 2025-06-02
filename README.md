@@ -177,22 +177,24 @@ The CLI provides an enhanced user experience:
 3.  **Colored Console Output**: For clear distinction of success (✓ green), error (✗ red), info (ℹ blue), and warning (⚠ yellow) messages.
 4.  **Formatted Results Summary**: A detailed table summarizing key metrics for each model/strategy combination at the end of the run.
 
-## Unbiased Essay Re-grading Utility
+## Utilities
 
-### Addressing Self-Grading Bias
+### Unbiased Essay Re-grading Utility
+
+#### Addressing Self-Grading Bias
 
 **Critical Issue**: In the initial benchmark design, each LLM was grading its own generated essays, potentially introducing significant bias where models might systematically over-rate or under-rate their own outputs.
 
 **Solution**: The `src/utils/regrade_with_gpt4_1.py` utility addresses this bias by using **GPT-4.1 as a consistent, independent grader** across all models and strategies. This approach reproduces the unbiased evaluation methodology from the [JP Morgan CFA paper](https://aclanthology.org/2024.emnlp-industry.80.pdf) (Mahfouz et al., 2024), ensuring fair comparison across different LLMs.
 
-### Key Features:
+#### Key Features:
 - **Consistent Grader**: Uses GPT-4.1 with identical grading prompts for all essays
 - **CFA Level III Grading System**: Implements proper CFA grading rubrics with detailed scoring criteria
 - **Automatic Data Matching**: Matches generated essays to grading criteria using folder + position indexing
 - **Backup & Safety**: Creates backups before modifying result files
 - **Comprehensive Logging**: Tracks score changes, processing statistics, and potential issues
 
-### Usage:
+#### Usage:
 
 ```bash
 # Dry run to preview changes (recommended first)
@@ -205,18 +207,53 @@ python -m src.utils.regrade_with_gpt4_1 --strategy self_consistency_essay_n3 --e
 python -m src.utils.regrade_with_gpt4_1 --strategy all --execute
 ```
 
-### Requirements:
+#### Requirements:
 - **OpenAI API Key**: GPT-4.1 access required (set `OPENAI_API_KEY` in `.env`)
 - **Grading Data**: Requires `data/answer_grading_details.json` with CFA grading criteria
 - **Generated Results**: Works with existing `evaluated_results_*.json` files from any strategy
 
-### Output:
+#### Output:
 - **Updated Scores**: Replaces biased self-grades with unbiased GPT-4.1 scores
 - **Audit Trail**: Adds `regrade_info` metadata to track the re-grading process
 - **Change Summary**: Detailed statistics on score improvements/declines
 - **Backup Files**: Original files preserved as `.json.backup`
 
 This utility is essential for reproducing the rigorous, unbiased evaluation standards used in academic LLM research and enables fair comparison of model capabilities across the benchmark.
+
+### Similarity Score Regrading Utility
+
+#### Purpose
+The `src/utils/regrade_similarity_scores.py` utility recalculates and updates the cosine similarity and ROUGE-L scores for all evaluated essay results. This ensures consistency in similarity metrics across all model outputs and strategies.
+
+#### Key Features:
+- **Comprehensive Processing**: Updates all similarity scores (cosine similarity, ROUGE-L precision, recall, and F1-measure)
+- **Multi-Strategy Support**: Works with all essay generation strategies (default, self-consistency, self-discover)
+- **Backup & Safety**: Creates backups before modifying result files
+- **Logging**: Tracks processing statistics and provides detailed feedback
+
+#### Usage:
+
+```bash
+# Dry run to preview changes (recommended first)
+python -m src.utils.regrade_similarity_scores --strategy default_essay --dry-run
+
+# Update similarity scores for a specific strategy
+python -m src.utils.regrade_similarity_scores --strategy self_consistency_essay_n3 --execute
+
+# Update similarity scores for all essay strategies
+python -m src.utils.regrade_similarity_scores --strategy all --execute
+```
+
+#### Requirements:
+- **Generated Results**: Works with existing `evaluated_results_*.json` files from any strategy
+- **rouge-score Package**: Requires the rouge-score package for ROUGE metrics calculation
+
+#### Output:
+- **Updated Scores**: Recalculates and updates all similarity metrics in the result files
+- **Processing Log**: Creates `similarity_regrade_log.txt` with detailed processing information
+- **Backup Files**: Original files preserved as `.json.backup`
+
+This utility is useful when you need to ensure consistent calculation of similarity metrics across all models and strategies, especially after making changes to the evaluation code or when comparing results from different runs.
 
 ## Configuration
 
