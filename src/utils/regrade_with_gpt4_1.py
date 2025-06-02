@@ -7,15 +7,20 @@ Instead, it uses GPT-4.1 as a consistent grader across all models to ensure fair
 reproducing the evaluation methodology from the JP Morgan CFA paper (Mahfouz et al., 2024).
 
 Key Features:
-- Uses proper CFA Level III grading functions
+- Uses proper CFA Level III grading functions with correct answer context
 - Automatically matches updated_data.json and answer_grading_details.json by folder + position
-- Gets question context from updated_data.json and grading criteria from answer_grading_details.json
-- Consistent GPT-4.1 grader for all results
+- Gets question context, correct answer (explanation), and grading criteria from data files
+- Consistent GPT-4.1 grader for all results with access to correct answers
 - Efficient score-only grading for faster processing
 
 Usage:
+    # Preferred method (run as module):
     python -m src.utils.regrade_with_gpt4_1 --strategy default_essay --dry-run
     python -m src.utils.regrade_with_gpt4_1 --strategy all --execute
+    
+    # Alternative method (run script directly):
+    python src/utils/regrade_with_gpt4_1.py --strategy default_essay --dry-run
+    python src/utils/regrade_with_gpt4_1.py --strategy all --execute
 """
 
 import json
@@ -28,10 +33,14 @@ import sys
 import re
 import inspect
 
-sys.path.append(str(Path(__file__).parent.parent))
+project_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(project_root))
 
 from src.config import PROJECT_ROOT, OPENAI_API_KEY
 from src.llm_clients import get_llm_response
+
+from src.prompts.grading_prompts import get_full_cfa_level_iii_efficient_grading_prompt
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,7 +83,7 @@ GPT4_1_CONFIG = {
 }
 
 class ImprovedEssayRegrader:
-    """Re-grades essay results using GPT-4.1 with proper CFA Level III grading system."""
+    """Re-grades essay results using GPT-4.1 with proper CFA Level III grading system including correct answer context."""
     
     def __init__(self, dry_run: bool = True):
         self.dry_run = dry_run
@@ -222,6 +231,7 @@ class ImprovedEssayRegrader:
         """Re-grade a single essay using GPT-4.1 with strict CFA Level III grading."""
         try:
             grading_details_text = question_context.get('grading_details', '')
+            correct_answer = question_context.get('explanation', '')
             max_score = question_context.get('max_score')
             question = question_context.get('question', '')
             vignette = question_context.get('vignette', '')
@@ -263,7 +273,8 @@ class ImprovedEssayRegrader:
                 correct_answer=correct_answer,
                 student_answer=generated_answer,
                 min_score=min_score,
-                max_score=max_score
+                max_score=max_score,
+                correct_answer=correct_answer
             )
             
             response = get_llm_response(
@@ -372,16 +383,17 @@ class ImprovedEssayRegrader:
                     
                     if new_score is not None:
                         entry['self_grade_score'] = new_score
-                        entry['self_grade_justification'] = "Re-graded by GPT-4.1 using CFA Level III efficient (score-only) grading."
+                        entry['self_grade_justification'] = "Re-graded by GPT-4.1 using CFA Level III efficient (score-only) grading with correct answer context."
                         entry['raw_self_grade_api_response'] = raw_llm_response_text if raw_llm_response_text else f"Score: {new_score}"
                         
                         entry['regrade_info'] = {
                             'regraded_by': GPT4_1_CONFIG['model_id'],
                             'original_score': original_score,
                             'regrade_timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-                            'grading_system': 'cfa_level_iii_efficient',
+                            'grading_system': 'cfa_level_iii_efficient_with_correct_answer',
                             'matched_folder': question_context['folder'],
-                            'matched_position': question_context['position']
+                            'matched_position': question_context['position'],
+                            'includes_correct_answer': True
                         }
                         
                         if original_score is not None:
