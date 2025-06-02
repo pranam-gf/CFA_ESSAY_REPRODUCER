@@ -19,11 +19,16 @@ from typing import Dict, List, Any
 import sys
 import shutil
 
+print("Script starting - importing modules...")
+
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.config import PROJECT_ROOT
 from src.evaluations.essay_evaluation import calculate_cosine_similarity, calculate_rouge_l_score
 
+print(f"PROJECT_ROOT is set to: {PROJECT_ROOT}")
+
+# Configure logging to stdout with INFO level
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -33,6 +38,7 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+print("Logging configured.")
 
 class SimilarityScoreRegrader:
     """Recalculates and updates similarity scores (cosine and ROUGE-L) for essay results."""
@@ -149,15 +155,26 @@ class SimilarityScoreRegrader:
     def process_strategy_folder(self, strategy_name: str) -> bool:
         """Process all evaluated result files in a strategy folder."""
         strategy_folder = self.results_dir / strategy_name
+        print(f"Processing strategy folder: {strategy_folder}")
         
         if not strategy_folder.exists():
+            print(f"ERROR: Strategy folder not found: {strategy_folder}")
             logger.error(f"Strategy folder not found: {strategy_folder}")
             return False
+        
+        print(f"Strategy folder exists. Looking for JSON files...")
+        
+        # List all files to make sure we can see the directory contents
+        all_files = list(strategy_folder.glob("*"))
+        print(f"All files in directory ({len(all_files)}): {[f.name for f in all_files]}")
         
         result_files = [f for f in strategy_folder.glob("evaluated_results_*.json") 
                        if not f.name.endswith('.json.backup')]
         
+        print(f"Found {len(result_files)} result files: {[f.name for f in result_files]}")
+        
         if not result_files:
+            print(f"WARNING: No evaluated result files found in {strategy_folder}")
             logger.warning(f"No evaluated result files found in {strategy_folder} (excluding .backup files)")
             return False
         
@@ -165,45 +182,71 @@ class SimilarityScoreRegrader:
         
         success_count = 0
         for file_path in result_files:
+            print(f"Processing file: {file_path.name}")
             if self.process_evaluated_result_file(file_path):
                 success_count += 1
+                print(f"Successfully processed: {file_path.name}")
+            else:
+                print(f"Failed to process: {file_path.name}")
         
         self.stats["files_processed"] += len(result_files)
 
         if success_count == len(result_files) and len(result_files) > 0:
-             logger.info(f"Successfully processed all {success_count}/{len(result_files)} files in {strategy_name}")
+             message = f"Successfully processed all {success_count}/{len(result_files)} files in {strategy_name}"
+             print(message)
+             logger.info(message)
         elif success_count > 0:
-             logger.warning(f"Processed {success_count}/{len(result_files)} files in {strategy_name} with some errors.")
+             message = f"Processed {success_count}/{len(result_files)} files in {strategy_name} with some errors."
+             print(message)
+             logger.warning(message)
         elif len(result_files) > 0:
-             logger.error(f"Failed to process any files in {strategy_name}.")
+             message = f"Failed to process any files in {strategy_name}."
+             print(message)
+             logger.error(message)
         
+        print(f"Completed processing strategy: {strategy_name}")
         return success_count > 0 or not result_files
     
     def run(self, strategies: List[str]) -> Dict[str, Any]:
         """Run the similarity score regrading process for specified strategies."""
         start_time = time.time()
         
+        print(f"Starting similarity score regrading process with strategies: {strategies}")
+        print(f"Results directory: {self.results_dir}")
+        print(f"Dry run mode: {self.dry_run}")
+        
         processed_strategies = []
         
         if "all" in strategies:
+            print("'all' strategy specified, checking available directories...")
             all_dirs = [d.name for d in self.results_dir.iterdir() if d.is_dir()]
+            print(f"All directories found: {all_dirs}")
+            
             strategies_to_process = [
                 d_name for d_name in all_dirs 
                 if "essay" in d_name or "default" in d_name or "consistency" in d_name or "discover" in d_name
             ]
+            print(f"Filtered strategy directories: {strategies_to_process}")
+            
             if not strategies_to_process:
+                print("No matching directories found, using all available directories")
                 strategies_to_process = all_dirs
 
             logger.info(f"Processing all identified strategy folders: {strategies_to_process}")
+            print(f"Processing all identified strategy folders: {strategies_to_process}")
         else:
             strategies_to_process = strategies
+            print(f"Processing specified strategies: {strategies_to_process}")
         
         for strategy in strategies_to_process:
+            print(f"\n--- Starting strategy: {strategy} ---")
             logger.info(f"--- Starting strategy: {strategy} ---")
             if self.process_strategy_folder(strategy):
                 processed_strategies.append(strategy)
+                print(f"--- Completed strategy: {strategy} ---")
                 logger.info(f"--- Completed strategy: {strategy} ---")
             else:
+                print(f"--- Failed to fully process strategy: {strategy} ---")
                 logger.error(f"--- Failed to fully process strategy: {strategy} ---")
         
         self.stats["processing_time"] = time.time() - start_time
