@@ -25,7 +25,6 @@ Generated Answer to Evaluate:
 
 Please provide your evaluation in the specified JSON format, including a 'score' (an integer from 1 to 10) and a 'justification' (a string).
 """
-# Add this to src/prompts/grading_prompts.py
 
 CFA_LEVEL_III_EFFICIENT_GRADING_SYSTEM_PROMPT = """
 You are a strict CFA Level III examination grader. You must follow the provided grading details EXACTLY - no partial credit beyond what is explicitly specified.
